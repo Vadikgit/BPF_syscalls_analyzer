@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2020 Facebook */
 #include <stdio.h>
-#include <stdlib.h>
+#include <cstdlib> 
 #include <unistd.h>
 #include <string.h>
 #include <sys/resource.h>
 #include <bpf/libbpf.h>
+#include <bpf/bpf.h>
 #include "analyzer.skel.h"
 #include "structs.h"
+
+#include <iostream>
+#include <fstream>
+#include <string>
+
 
 int SyscllStatMap_map_fd = -1;
 int BaseTableMap_map_fd  = -1;
@@ -22,47 +28,57 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
 void read_and_fill_normal_traces_map()
 {
   // Reading data about the normal operation of programs from a disk in a ProgNormalTrace map  --------------
-  FILE *inf;
-  inf = fopen("programs_traces.txt", "r");
+  std::ifstream inf("programs_traces.txt");
+  if (!inf)
+  {
+    std::cerr << "programs_traces.txt could not be opened for reading!\n";
+    exit(1);
+  }
   
-  char name[1024];
   struct ProgNameType key1 = {};
   struct ProgSyscallsListType val1 = {};
   
-  while (fscanf(inf, "%s", key1.proc_name) != EOF) {
+  while (inf) {
+    std::string traceStr, progName, currentSyscallNumber;
+    std::getline(inf, traceStr);
   
-    int numofelements = 0;
-    fscanf(inf, "%d", &numofelements);
+    int leftSpacePos = traceStr.find(' ');
+    int rightSpacePos = leftSpacePos;
     
-    printf("name: %s\n%d calls: ", key1.proc_name, numofelements);
+    progName = traceStr.substr(0, leftSpacePos);
+    progName.copy(key1.proc_name, progName.length());
+    std::cout << "name: " << progName << '\n' << "calls: " << std::endl;
     
-    for(int i = 0; i < numofelements; i++)
-    {
-      int tempcall = 0;
-      fscanf(inf, "%d", &tempcall);
+    while (leftSpacePos != std::string::npos) {
+      rightSpacePos = traceStr.find(' ', leftSpacePos + 1);
       
-      val1.is_syscall_typical[tempcall / 8] |= (1 << (tempcall % 8));
+      currentSyscallNumber = traceStr.substr(leftSpacePos + 1, rightSpacePos - leftSpacePos - 1);
+      std::cout << stoi(currentSyscallNumber) << ' ' << std::endl;
       
-      printf("%d ", tempcall);
+      val1.is_syscall_typical[stoi(currentSyscallNumber) / 8] |= (1 << (stoi(currentSyscallNumber) % 8));
+      
+      leftSpacePos = rightSpacePos;
     }
+    
+    std::cout << '\n';
     
     bpf_map_update_elem(ProgNormalTrace_map_fd, &key1, &val1, 0);
     
     memset(&key1, 0, sizeof(key1));
     memset(&val1, 0, sizeof(val1));
-    
-    printf("\n");
   }
-  
-  fclose(inf);
 }
 
 
 void write_normal_traces_map_in_file()
 {
-  // Reading data about the normal operation of programs from a disk in a ProgNormalTrace map  --------------
-  FILE *outf;
-  outf = fopen("programs_traces.txt", "w");
+  // Writing data about the normal operation of programs from a ProgNormalTrace map in a disk  --------------
+  std::ofstream outf("programs_traces.txt");
+  if (!outf)
+  {
+    std::cerr << "programs_traces.txt could not be opened for writing!\n";
+    exit(1);
+  }
   
   struct ProgNameType key1 = {};
   struct ProgNameType key2 = {};
@@ -77,24 +93,44 @@ void write_normal_traces_map_in_file()
       
     bpf_map_lookup_elem(ProgNormalTrace_map_fd, &key1, &val1);
     
-    fprintf(outf, "%s ", key1.proc_name);
-    
-    int num_of_syscalls = 0;
-    for (int i = 0; i < (8 * sizeof(val1)); i++)
-      if ((val1.is_syscall_typical[i / 8] & (1 << (i % 8))) != 0)
-        num_of_syscalls++;
-        
-    fprintf(outf, "%d ", num_of_syscalls);
+    std::string traceStr = key1.proc_name;
     
     for (int i = 0; i < (8 * sizeof(val1)); i++)
       if ((val1.is_syscall_typical[i / 8] & (1 << (i % 8))) != 0)
-        fprintf(outf, "%d ", i);
+        traceStr += (" " + std::to_string(i));
     
     if (ret != -ENOENT)
-      fprintf(outf, "\n"); 
+      traceStr += "\n";
+    
+    outf << traceStr;
+  }
+}
+
+void attach_handlers_to_syscalls(struct analyzer_bpf *skel)
+{
+  // Reading data about relevant syscalls from file  --------------
+  std::ifstream inf("relevant_syscalls.txt");
+  if (!inf)
+  {
+    std::cerr << "relevant_syscalls.txt could not be opened for reading!\n";
+    exit(1);
   }
   
-  fclose(outf);
+  std::string currentString;
+  
+  while (inf) {
+    std::getline(inf, currentString);
+    
+    if (currentString.length() > 0 && currentString.back() == '-')
+    {
+      currentString = currentString.substr(0, currentString.find('-'));
+      std::cout << "\'" << currentString << "\' will be traced\n";
+      
+      bpf_program__attach_tracepoint(skel->progs.handle_tp_enter, "syscalls", (std::string("sys_enter_") + currentString).c_str());
+      
+      bpf_program__attach_tracepoint(skel->progs.handle_tp_exit, "syscalls", (std::string("sys_exit_") + currentString).c_str());
+    }
+  }
 }
 
 
@@ -150,7 +186,7 @@ int main(int argc, char **argv)
         
         bool not_found_SyscllStatMap = (SyscllStatMap_map_fd < 0);
         printf("\n----------------------------------\n");
-        printf("\SyscllStatMap_map_fd: %d\n", SyscllStatMap_map_fd);
+        printf("SyscllStatMap_map_fd: %d\n", SyscllStatMap_map_fd);
         printf("\n----------------------------------\n");
         
         if (not_found_SyscllStatMap) {
@@ -171,33 +207,7 @@ int main(int argc, char **argv)
         if (not_found_SyscllStatMap)
           bpf_map__pin(skel->maps.SyscllStatMap, "/sys/fs/bpf/SyscllStatMap");
         
-        
-// PID-name table --------------
-        /*int PIDName_map_fd = bpf_obj_get("/sys/fs/bpf/PIDName");
-        
-        bool not_found_PIDName = (PIDName_map_fd < 0);
-        printf("\n----------------------------------\n");
-        printf("\PIDName_map_fd: %d\n", PIDName_map_fd);
-        printf("\n----------------------------------\n");
-        
-        if (not_found_PIDName) {
-          printf("\n----------------------------------\n");
-          printf("\nPinned map PIDName NOT FOUND\n");
-          printf("\nCreating new ...\n");
-          printf("\n----------------------------------\n");
-          
-          PIDName_map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 
-                                              "PIDName", 
-                                               sizeof(uint64_t), 
-                                               sizeof(struct PIDNameEntry), 
-                                               skel->rodata->max_entries_PIDName_c, 0);
-        }
-        
-        bpf_map__reuse_fd(skel->maps.PIDName, PIDName_map_fd);
-      
-        if (not_found_PIDName)
-          bpf_map__pin(skel->maps.PIDName, "/sys/fs/bpf/PIDName");*/
-        
+              
         
         
 // Programs Normal Trace table --------------
@@ -284,17 +294,20 @@ int main(int argc, char **argv)
 		goto cleanup;
 	}
 
-// Attach tracepoint handler 
+// Attach tracepoints handler 
 	err = analyzer_bpf__attach(skel);
 	if (err) {
 		fprintf(stderr, "Failed to attach BPF skeleton\n");
 		goto cleanup;
 	}
+	
+	attach_handlers_to_syscalls(skel);
         
 	printf("Successfully started! Please run `sudo cat /sys/kernel/debug/tracing/trace_pipe` "
 	       "to see output of the BPF programs.\n");
 
-	getchar();
+// Activity
+	getchar(); // finishing
 
         write_normal_traces_map_in_file();
         

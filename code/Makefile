@@ -51,14 +51,14 @@ $(OBJECTS)/analyzer.skel.h: $(OBJECTS)/analyzer.bpf.o | $(OBJECTS) $(BPFTOOL)
 	$(Q)$(BPFTOOL) gen skeleton $< > $@
 
 # Analyzer user-space code
-$(OBJECTS)/analyzer.o: $(OBJECTS)/analyzer.skel.h analyzer.c $(wildcard analyzer.h) *.h | $(OBJECTS)
-	$(call msg,CC,$@)
-	@$(CC) $(CFLAGS) $(INCLUDES) -c $(filter %.c,$^) -o $@
+$(OBJECTS)/analyzer.o: $(OBJECTS)/analyzer.skel.h analyzer.cpp $(wildcard analyzer.h) *.h | $(OBJECTS)
+	$(call msg,CXX,$@)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -c analyzer.cpp -o $@
 
 # Analyzer application binary
 analyzer: $(OBJECTS)/analyzer.o $(LIBBPF_OBJ) | $(OBJECTS)
 	$(call msg,BINARY,$@)
-	@$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+	@$(CXX) $(CXXFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
 
 # Tools
 $(OBJECTS)/_tool_%.o: %.c *.h | $(OBJECTS)
