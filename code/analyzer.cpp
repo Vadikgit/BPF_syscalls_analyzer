@@ -15,9 +15,14 @@
 #include <string>
 
 
-int SyscllStatMap_map_fd = -1;
 int BaseTableMap_map_fd  = -1;
+int SyscllStatMap_map_fd = -1;
 int ProgNormalTrace_map_fd = -1;
+
+std::string BaseTableMapPathName = "/sys/fs/bpf/BaseTableMap";
+std::string SyscllStatMapPathName = "/sys/fs/bpf/SyscllStatMap";
+std::string ProgNormalTracePathName = "/sys/fs/bpf/ProgNormalTrace";
+
 bool keep_maps_alive_after_exit = false;
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
@@ -68,7 +73,6 @@ void read_and_fill_normal_traces_map()
     memset(&val1, 0, sizeof(val1));
   }
 }
-
 
 void write_normal_traces_map_in_file()
 {
@@ -133,12 +137,34 @@ void attach_handlers_to_syscalls(struct analyzer_bpf *skel)
   }
 }
 
+void create_or_reuse_map(std::string pathName, bpf_map_type mapType, uint32_t keySize, uint32_t valSize,
+						 uint64_t maxEntries, struct bpf_map * mapPointerInScel, int & mapFd){
+
+	mapFd = bpf_obj_get(pathName.c_str());
+
+	bool notFoundMap = (mapFd < 0);
+
+	std::cout << "\n----------------------------------\n" << pathName
+			  << " file descriptor: " << mapFd << "\n----------------------------------\n";
+
+	if (notFoundMap) {
+		std::cout << "\n----------------------------------\n\nPinned map " << pathName
+				  << " NOT FOUND\n\nCreating new ...\n\n----------------------------------\n";
+
+		mapFd = bpf_map_create(mapType, pathName.substr(pathName.rfind('/') + 1).c_str(), keySize, valSize, maxEntries, 0);
+	}
+
+	bpf_map__reuse_fd(mapPointerInScel, mapFd);
+
+	if (notFoundMap)
+	     bpf_map__pin(mapPointerInScel, pathName.c_str());
+}
 
 void delete_maps(struct analyzer_bpf *skel) 
 {
-  bpf_map__unpin(skel->maps.BaseTableMap, "/sys/fs/bpf/BaseTableMap");
-  bpf_map__unpin(skel->maps.SyscllStatMap, "/sys/fs/bpf/SyscllStatMap");
-  bpf_map__unpin(skel->maps.ProgNormalTrace, "/sys/fs/bpf/ProgNormalTrace");
+  bpf_map__unpin(skel->maps.BaseTableMap, BaseTableMapPathName.c_str());
+  bpf_map__unpin(skel->maps.SyscllStatMap, SyscllStatMapPathName.c_str());
+  bpf_map__unpin(skel->maps.ProgNormalTrace, ProgNormalTracePathName.c_str());
 }
 
 int main(int argc, char **argv)
@@ -146,7 +172,7 @@ int main(int argc, char **argv)
 	struct analyzer_bpf *skel;
 	int err;
 
-        libbpf_set_print(libbpf_print_fn);
+    libbpf_set_print(libbpf_print_fn);
 
 	skel = analyzer_bpf__open();
 	if (!skel) {
@@ -154,110 +180,34 @@ int main(int argc, char **argv)
 		return 1;
 	}
          
-// Base Table --------------
-        BaseTableMap_map_fd = bpf_obj_get("/sys/fs/bpf/BaseTableMap");
-        
-        bool not_found_BaseTableMap = (BaseTableMap_map_fd < 0);
-        printf("\n----------------------------------\n");
-        printf("\nBaseTableMap_map_fd: %d\n", BaseTableMap_map_fd);
-        printf("\n----------------------------------\n");
-        
-        if (not_found_BaseTableMap) {
-          printf("\n----------------------------------\n");
-          printf("\nPinned map BaseTableMap NOT FOUND\n");
-          printf("\nCreating new ...\n");
-          printf("\n----------------------------------\n");
-          
-          BaseTableMap_map_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, 
-                                              "BaseTableMap", 
-                                               sizeof(uint32_t), 
-                                               sizeof(struct BaseTableEntry), 
-                                               skel->rodata->max_entries_BaseTableMap_c, 0);
-        }
-         
-        bpf_map__reuse_fd(skel->maps.BaseTableMap, BaseTableMap_map_fd);
-      
-        if (not_found_BaseTableMap)
-          bpf_map__pin(skel->maps.BaseTableMap, "/sys/fs/bpf/BaseTableMap");
-          
-          
-// Syscall Statistic --------------
-        SyscllStatMap_map_fd = bpf_obj_get("/sys/fs/bpf/SyscllStatMap");
-        
-        bool not_found_SyscllStatMap = (SyscllStatMap_map_fd < 0);
-        printf("\n----------------------------------\n");
-        printf("SyscllStatMap_map_fd: %d\n", SyscllStatMap_map_fd);
-        printf("\n----------------------------------\n");
-        
-        if (not_found_SyscllStatMap) {
-          printf("\n----------------------------------\n");
-          printf("\nPinned map SyscllStatMap NOT FOUND\n");
-          printf("\nCreating new ...\n");
-          printf("\n----------------------------------\n");
-          
-          SyscllStatMap_map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 
-                                              "SyscllStatMap", 
-                                               sizeof(uint64_t), 
-                                               sizeof(uint64_t), 
-                                               skel->rodata->max_entries_SyscllStat_c, 0);
-        }
-         
-        bpf_map__reuse_fd(skel->maps.SyscllStatMap, SyscllStatMap_map_fd);
-      
-        if (not_found_SyscllStatMap)
-          bpf_map__pin(skel->maps.SyscllStatMap, "/sys/fs/bpf/SyscllStatMap");
-        
-              
-        
-        
-// Programs Normal Trace table --------------
-        ProgNormalTrace_map_fd = bpf_obj_get("/sys/fs/bpf/ProgNormalTrace");
-        
-        bool not_found_ProgNormalTrace = (ProgNormalTrace_map_fd < 0);
-        printf("\n----------------------------------\n");
-        printf("\ProgNormalTrace_map_fd: %d\n", ProgNormalTrace_map_fd);
-        printf("\n----------------------------------\n");
-        
-        if (not_found_ProgNormalTrace) {
-          printf("\n----------------------------------\n");
-          printf("\nPinned map ProgNormalTrace NOT FOUND\n");
-          printf("\nCreating new ...\n");
-          printf("\n----------------------------------\n");
-          
-          ProgNormalTrace_map_fd = bpf_map_create(BPF_MAP_TYPE_HASH, 
-                                              "ProgNormalTrace", 
-                                               sizeof(struct ProgNameType), 
-                                               sizeof(struct ProgSyscallsListType), 
-                                               skel->rodata->max_entries_ProgNormalTrace_c, 0);
-        }
+// Preparing BPF maps --------------
 
-        bpf_map__reuse_fd(skel->maps.ProgNormalTrace, ProgNormalTrace_map_fd);
-      
-        if (not_found_ProgNormalTrace)
-          bpf_map__pin(skel->maps.ProgNormalTrace, "/sys/fs/bpf/ProgNormalTrace");        
-    
-    
+	create_or_reuse_map(BaseTableMapPathName, BPF_MAP_TYPE_ARRAY, sizeof(uint32_t), sizeof(struct BaseTableEntry),
+						skel->rodata->max_entries_BaseTableMap_c, skel->maps.BaseTableMap, BaseTableMap_map_fd); // Base Table
+	create_or_reuse_map(SyscllStatMapPathName, BPF_MAP_TYPE_HASH, sizeof(uint64_t), sizeof(uint64_t),
+						skel->rodata->max_entries_SyscllStat_c, skel->maps.SyscllStatMap, SyscllStatMap_map_fd); // Syscall Statistic
+	create_or_reuse_map(ProgNormalTracePathName, BPF_MAP_TYPE_HASH, sizeof(struct ProgNameType), sizeof(struct ProgSyscallsListType),
+						skel->rodata->max_entries_ProgNormalTrace_c, skel->maps.ProgNormalTrace, ProgNormalTrace_map_fd); // Programs Normal Traces
         
-        printf("\n----------------------------------\n");
-        printf("\nAttached to pinned maps\n");
-        printf("\n----------------------------------\n");
+    std::cout << "\n----------------------------------\n\nAttached to pinned maps\n\n----------------------------------\n";
       
       
 // Processing arguments --------------
-        if (argc % 2 == 0 && argv[argc - 1][0] == 's') { // save maps
-          keep_maps_alive_after_exit = true;
+
+    if (argc % 2 == 0 && argv[argc - 1][0] == 's') { // save maps
+        keep_maps_alive_after_exit = true;
           
-          printf("\n----------------------------------\n");
-          printf("\nMaps will be saved in bpf filesystem after exit\n");
-          printf("\n----------------------------------\n");
-        }
+        printf("\n----------------------------------\n");
+        printf("\nMaps will be saved in bpf filesystem after exit\n");
+        printf("\n----------------------------------\n");
+     }
           
-        if (argc >= 3) {
-          if (argv[1][0] == 'p') { // process
-            uint64_t PD_to_track = atoll(argv[2]);
+     if (argc >= 3) {
+         if (argv[1][0] == 'p') { // process
+             uint64_t PD_to_track = atoll(argv[2]);
             
-            skel->bss->to_track_value = PD_to_track;
-            skel->bss->tracking_type = 2;
+             skel->bss->to_track_value = PD_to_track;
+             skel->bss->tracking_type = 2;
             
 	    printf("\n----------------------------------\n");
             printf("\nTracking PID: %llu\n", PD_to_track);
