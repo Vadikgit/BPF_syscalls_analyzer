@@ -10,6 +10,8 @@
 #include "analyzer.skel.h"
 #include "structs.h"
 
+#include <vector>
+#include <unordered_map>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -22,6 +24,13 @@ int ProgNormalTrace_map_fd = -1;
 std::string BaseTableMapPathName = "/sys/fs/bpf/BaseTableMap";
 std::string SyscllStatMapPathName = "/sys/fs/bpf/SyscllStatMap";
 std::string ProgNormalTracePathName = "/sys/fs/bpf/ProgNormalTrace";
+
+const std::string arg_save_maps_after_exit = "-s";
+const std::string arg_learn_program_behaviour = "-l";
+const std::string arg_specify_process_to_catch_syscalls = "-p";
+const std::string arg_specify_user_to_catch_syscalls = "-u";
+
+std::unordered_map<std::string, std::vector<std::string>> arguments;
 
 bool keep_maps_alive_after_exit = false;
 
@@ -167,6 +176,75 @@ void delete_maps(struct analyzer_bpf *skel)
   bpf_map__unpin(skel->maps.ProgNormalTrace, ProgNormalTracePathName.c_str());
 }
 
+void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
+{
+	std::string key;
+    for(int i = 1; i < argc; i++){
+    	if(argv[i][0] == '-'){
+    		key = argv[i];
+    		auto it = arguments.find(key);
+
+    		if (it == arguments.end())
+    			arguments[key] = {};
+    	}
+    	else {
+    		arguments[key].push_back(argv[i]);
+    	}
+    }
+
+    if (arguments.find(arg_save_maps_after_exit) != arguments.end()) { // save maps
+    	keep_maps_alive_after_exit = true;
+        std::cout << "\n----------------------------------\n\nMaps will be saved in bpf filesystem after exit\n\n----------------------------------\n";
+    }
+
+    if (arguments.find(arg_specify_process_to_catch_syscalls) != arguments.end() &&
+    	arguments[arg_specify_process_to_catch_syscalls].empty() == false) { // process
+    	try
+    	{
+    		uint64_t PD_to_track = std::stoll(arguments[arg_specify_process_to_catch_syscalls][0]);
+
+    		skel->bss->to_track_value = PD_to_track;
+    		skel->bss->tracking_type = 2;
+
+    		std::cout << "\n----------------------------------\n\nTracking PID: " << PD_to_track
+    		          << "\n\n----------------------------------\n";
+    	}
+    	catch (std::invalid_argument const& ex)
+    	{
+    	    std::cout << ex.what() << '\n';
+    	}
+    }
+
+    if (arguments.find(arg_specify_user_to_catch_syscalls) != arguments.end() &&
+    	arguments[arg_specify_user_to_catch_syscalls].empty() == false) { // user
+       	try
+       	{
+       		uint64_t UD_to_track = std::stoll(arguments[arg_specify_user_to_catch_syscalls][0]);
+
+       		skel->bss->to_track_value = UD_to_track;
+       		skel->bss->tracking_type = 1;
+
+        	std::cout << "\n----------------------------------\n\nTracking UID: " << UD_to_track
+        			  << "\n\n----------------------------------\n";
+        	}
+        	catch (std::invalid_argument const& ex)
+        	{
+        	    std::cout << ex.what() << '\n';
+        	}
+    }
+
+    if (arguments.find(arg_learn_program_behaviour) != arguments.end() &&
+        arguments[arg_learn_program_behaviour].empty() == false) { // learning
+
+    	skel->bss->tracking_type = 3;
+    	std::string progName = arguments[arg_learn_program_behaviour][0];
+    	progName.copy(skel->bss->tracking_program_n_a_name, progName.length());
+
+    	std::cout << "\n----------------------------------\n\nTracking of " << arguments[arg_learn_program_behaviour][0]
+    	          << " program normal behaviour\n\n----------------------------------\n";
+    }
+}
+
 int main(int argc, char **argv)
 {
 	struct analyzer_bpf *skel;
@@ -181,7 +259,6 @@ int main(int argc, char **argv)
 	}
          
 // Preparing BPF maps --------------
-
 	create_or_reuse_map(BaseTableMapPathName, BPF_MAP_TYPE_ARRAY, sizeof(uint32_t), sizeof(struct BaseTableEntry),
 						skel->rodata->max_entries_BaseTableMap_c, skel->maps.BaseTableMap, BaseTableMap_map_fd); // Base Table
 	create_or_reuse_map(SyscllStatMapPathName, BPF_MAP_TYPE_HASH, sizeof(uint64_t), sizeof(uint64_t),
@@ -193,49 +270,10 @@ int main(int argc, char **argv)
       
       
 // Processing arguments --------------
-
-    if (argc % 2 == 0 && argv[argc - 1][0] == 's') { // save maps
-        keep_maps_alive_after_exit = true;
-          
-        printf("\n----------------------------------\n");
-        printf("\nMaps will be saved in bpf filesystem after exit\n");
-        printf("\n----------------------------------\n");
-     }
-          
-     if (argc >= 3) {
-         if (argv[1][0] == 'p') { // process
-             uint64_t PD_to_track = atoll(argv[2]);
-            
-             skel->bss->to_track_value = PD_to_track;
-             skel->bss->tracking_type = 2;
-            
-	    printf("\n----------------------------------\n");
-            printf("\nTracking PID: %llu\n", PD_to_track);
-            printf("\n----------------------------------\n");
-          }
-          else if (argv[1][0] == 'u') { // user
-            uint64_t UD_to_track = atoll(argv[2]);
-            
-            skel->bss->to_track_value = UD_to_track;
-            skel->bss->tracking_type = 1;
-            
-            printf("\n----------------------------------\n");
-            printf("\nTracking UID: %llu\n", UD_to_track);
-            printf("\n----------------------------------\n");
-          }
-          else if (argv[1][0] == 'l') { // learning
-            skel->bss->tracking_type = 3;
-            strcpy(skel->bss->tracking_program_n_a_name, argv[2]);
-            
-            printf("\n----------------------------------\n");
-            printf("Tracking of \"%s\" program normal behaviour\n", argv[2]);
-            printf("\n----------------------------------\n");
-          }
-	}
+    process_arguments(argc, argv, skel);
  
 // Reading data about the normal operation of programs from a disk in a ProgNormalTrace map  --------------
- 
-        read_and_fill_normal_traces_map();
+    read_and_fill_normal_traces_map();
 
 // Load & verify BPF programs
 	err = analyzer_bpf__load(skel);
@@ -259,9 +297,9 @@ int main(int argc, char **argv)
 // Activity
 	getchar(); // finishing
 
-        write_normal_traces_map_in_file();
+    write_normal_traces_map_in_file();
         
-        if(!keep_maps_alive_after_exit)
+    if(!keep_maps_alive_after_exit)
           delete_maps(skel);
 cleanup:
 	analyzer_bpf__destroy(skel);
