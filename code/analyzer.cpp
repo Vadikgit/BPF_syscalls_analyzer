@@ -16,6 +16,7 @@
 #include <fstream>
 #include <string>
 
+int err;
 
 int BaseTableMap_map_fd  = -1;
 int SyscllStatMap_map_fd = -1;
@@ -25,14 +26,20 @@ std::string BaseTableMapPathName = "/sys/fs/bpf/BaseTableMap";
 std::string SyscllStatMapPathName = "/sys/fs/bpf/SyscllStatMap";
 std::string ProgNormalTracePathName = "/sys/fs/bpf/ProgNormalTrace";
 
-const std::string arg_save_maps_after_exit = "-s";
-const std::string arg_learn_program_behaviour = "-l";
-const std::string arg_specify_process_to_catch_syscalls = "-p";
-const std::string arg_specify_user_to_catch_syscalls = "-u";
+std::string EnterHandlerPathName = "/sys/fs/bpf/handle_tp_enter";
+std::string ExitHandlerPathName = "/sys/fs/bpf/handle_tp_exit";
+
+std::string EnterHandlerLinkPatternPathName = "/sys/fs/bpf/handler_link_enter_";
+std::string ExitHandlerLinkPatternPathName = "/sys/fs/bpf/handler_link_exit_";
+
+const std::string arg_save_maps_after_exit = "-savemaps";
+const std::string arg_learn_program_behaviour = "-learn";
+const std::string arg_specify_process_to_catch_syscalls = "-pid";
+const std::string arg_specify_user_to_catch_syscalls = "-uid";
+const std::string arg_start_analyzer = "-start";
+const std::string arg_stop_analyzer = "-stop";
 
 std::unordered_map<std::string, std::vector<std::string>> arguments;
-
-bool keep_maps_alive_after_exit = false;
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
@@ -119,7 +126,7 @@ void write_normal_traces_map_in_file()
   }
 }
 
-void attach_handlers_to_syscalls(struct analyzer_bpf *skel)
+void attach_handlers_to_syscalls_and_pin_links(struct analyzer_bpf *skel)
 {
   // Reading data about relevant syscalls from file  --------------
   std::ifstream inf("relevant_syscalls.txt");
@@ -139,11 +146,25 @@ void attach_handlers_to_syscalls(struct analyzer_bpf *skel)
       currentString = currentString.substr(0, currentString.find('-'));
       std::cout << "\'" << currentString << "\' will be traced\n";
       
-      bpf_program__attach_tracepoint(skel->progs.handle_tp_enter, "syscalls", (std::string("sys_enter_") + currentString).c_str());
+      struct bpf_link * enter_link = bpf_program__attach_tracepoint(skel->progs.handle_tp_enter, "syscalls", (std::string("sys_enter_") + currentString).c_str());
+
+      struct bpf_link * exit_link = bpf_program__attach_tracepoint(skel->progs.handle_tp_exit, "syscalls", (std::string("sys_exit_") + currentString).c_str());
       
-      bpf_program__attach_tracepoint(skel->progs.handle_tp_exit, "syscalls", (std::string("sys_exit_") + currentString).c_str());
+      if(enter_link)
+    	  bpf_link__pin(enter_link, (EnterHandlerLinkPatternPathName + currentString).c_str());
+
+      if(exit_link)
+    	  bpf_link__pin(exit_link, (ExitHandlerLinkPatternPathName + currentString).c_str());
     }
   }
+
+  bpf_program__pin(skel->progs.handle_tp_enter, EnterHandlerPathName.c_str());
+  bpf_program__pin(skel->progs.handle_tp_exit, ExitHandlerPathName.c_str());
+}
+
+void delete__handlers_and_links(struct analyzer_bpf *skel)
+{
+	std::system("rm /sys/fs/bpf/h*");
 }
 
 void create_or_reuse_map(std::string pathName, bpf_map_type mapType, uint32_t keySize, uint32_t valSize,
@@ -176,6 +197,12 @@ void delete_maps(struct analyzer_bpf *skel)
   bpf_map__unpin(skel->maps.ProgNormalTrace, ProgNormalTracePathName.c_str());
 }
 
+int cleanup(struct analyzer_bpf *skel){
+	analyzer_bpf__destroy(skel);
+	std::cout << "\n----------------------------------\n\nCLEANUP ...\n\n----------------------------------\n";
+	return err;
+}
+
 void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
 {
 	std::string key;
@@ -192,63 +219,122 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
     	}
     }
 
-    if (arguments.find(arg_save_maps_after_exit) != arguments.end()) { // save maps
-    	keep_maps_alive_after_exit = true;
-        std::cout << "\n----------------------------------\n\nMaps will be saved in bpf filesystem after exit\n\n----------------------------------\n";
+    if (arguments.find(arg_start_analyzer) != arguments.end()) { // analyzer started
+
+    	// Preparing BPF maps
+    	create_or_reuse_map(BaseTableMapPathName, BPF_MAP_TYPE_ARRAY, sizeof(uint32_t), sizeof(struct BaseTableEntry),
+    	    				skel->rodata->max_entries_BaseTableMap_c, skel->maps.BaseTableMap, BaseTableMap_map_fd); // Base Table
+    	create_or_reuse_map(SyscllStatMapPathName, BPF_MAP_TYPE_HASH, sizeof(uint64_t), sizeof(uint64_t),
+    	    				skel->rodata->max_entries_SyscllStat_c, skel->maps.SyscllStatMap, SyscllStatMap_map_fd); // Syscall Statistic
+    	create_or_reuse_map(ProgNormalTracePathName, BPF_MAP_TYPE_HASH, sizeof(struct ProgNameType), sizeof(struct ProgSyscallsListType),
+    	    				skel->rodata->max_entries_ProgNormalTrace_c, skel->maps.ProgNormalTrace, ProgNormalTrace_map_fd); // Programs Normal Traces
+
+    	std::cout << "\n----------------------------------\n\nAttached to pinned maps\n\n----------------------------------\n";
+
+    	// Reading data about the normal operation of programs from a disk in a ProgNormalTrace map
+    	read_and_fill_normal_traces_map();
+
+        // Load & verify BPF programs
+        err = analyzer_bpf__load(skel);
+        if (err) {
+            fprintf(stderr, "Failed to load and verify BPF skeleton\n");
+            return ;
+        }
+
+        // Attach tracepoints handler
+        err = analyzer_bpf__attach(skel);
+        if (err) {
+            fprintf(stderr, "Failed to attach BPF skeleton\n");
+            return ;
+        }
+
+        attach_handlers_to_syscalls_and_pin_links(skel);
+        std::cout << "\n----------------------------------\n\nHandlers attached to tracepoints\n\n----------------------------------\n";
+
+
+
+    	if (arguments.find(arg_specify_process_to_catch_syscalls) != arguments.end() &&
+    	    	arguments[arg_specify_process_to_catch_syscalls].empty() == false) { // process
+    	    	try
+    	    	{
+    	    		uint64_t PD_to_track = std::stoll(arguments[arg_specify_process_to_catch_syscalls][0]);
+
+    	    		skel->bss->to_track_value = PD_to_track;
+    	    		skel->bss->tracking_type = 2;
+
+    	    		std::cout << "\n----------------------------------\n\nTracking PID: " << PD_to_track
+    	    		          << "\n\n----------------------------------\n";
+    	    	}
+    	    	catch (std::invalid_argument const& ex)
+    	    	{
+    	    	    std::cout << ex.what() << '\n';
+    	    	}
+    	    }
+
+    	    if (arguments.find(arg_specify_user_to_catch_syscalls) != arguments.end() &&
+    	    	arguments[arg_specify_user_to_catch_syscalls].empty() == false) { // user
+    	       	try
+    	       	{
+    	       		uint64_t UD_to_track = std::stoll(arguments[arg_specify_user_to_catch_syscalls][0]);
+
+    	       		skel->bss->to_track_value = UD_to_track;
+    	       		skel->bss->tracking_type = 1;
+
+    	        	std::cout << "\n----------------------------------\n\nTracking UID: " << UD_to_track
+    	        			  << "\n\n----------------------------------\n";
+    	        	}
+    	        	catch (std::invalid_argument const& ex)
+    	        	{
+    	        	    std::cout << ex.what() << '\n';
+    	        	}
+    	    }
+
+    	    if (arguments.find(arg_learn_program_behaviour) != arguments.end() &&
+    	        arguments[arg_learn_program_behaviour].empty() == false) { // learning
+
+    	    	skel->bss->tracking_type = 3;
+    	    	std::string progName = arguments[arg_learn_program_behaviour][0];
+    	    	progName.copy(skel->bss->tracking_program_n_a_name, progName.length());
+
+    	    	std::cout << "\n----------------------------------\n\nTracking of " << arguments[arg_learn_program_behaviour][0]
+    	    	          << " program normal behaviour\n\n----------------------------------\n";
+    	    }
+
+    	    std::cout << "Analyzer successfully started! Run `sudo cat /sys/kernel/debug/tracing/trace_pipe` to see output of the BPF programs.\n";
+
     }
 
-    if (arguments.find(arg_specify_process_to_catch_syscalls) != arguments.end() &&
-    	arguments[arg_specify_process_to_catch_syscalls].empty() == false) { // process
-    	try
-    	{
-    		uint64_t PD_to_track = std::stoll(arguments[arg_specify_process_to_catch_syscalls][0]);
 
-    		skel->bss->to_track_value = PD_to_track;
-    		skel->bss->tracking_type = 2;
 
-    		std::cout << "\n----------------------------------\n\nTracking PID: " << PD_to_track
-    		          << "\n\n----------------------------------\n";
-    	}
-    	catch (std::invalid_argument const& ex)
-    	{
-    	    std::cout << ex.what() << '\n';
-    	}
+
+
+    if (arguments.find(arg_stop_analyzer) != arguments.end()) { // analyzer stoped
+
+        // Unpin tracepoints handlers
+    	delete__handlers_and_links(skel);
+        std::cout << "\n----------------------------------\n\nHandlers unpinned from BPF filesystem\n\n----------------------------------\n";
+
+        create_or_reuse_map(ProgNormalTracePathName, BPF_MAP_TYPE_HASH, sizeof(struct ProgNameType), sizeof(struct ProgSyscallsListType),
+            	    				skel->rodata->max_entries_ProgNormalTrace_c, skel->maps.ProgNormalTrace, ProgNormalTrace_map_fd); // Programs Normal Traces
+
+        // Writing data about the normal operation of programs from a ProgNormalTrace map in a disk
+        write_normal_traces_map_in_file();
+
+        // Preparing BPF maps --------------
+        if (arguments.find(arg_save_maps_after_exit) == arguments.end()) { // delete or save maps
+            delete_maps(skel);
+            std::cout << "\n----------------------------------\n\nMaps will not be saved in bpf filesystem after exit\n\n----------------------------------\n";
+        }
+
+
+	    std::cout << "Analyzer successfully stoped!\n";
     }
 
-    if (arguments.find(arg_specify_user_to_catch_syscalls) != arguments.end() &&
-    	arguments[arg_specify_user_to_catch_syscalls].empty() == false) { // user
-       	try
-       	{
-       		uint64_t UD_to_track = std::stoll(arguments[arg_specify_user_to_catch_syscalls][0]);
-
-       		skel->bss->to_track_value = UD_to_track;
-       		skel->bss->tracking_type = 1;
-
-        	std::cout << "\n----------------------------------\n\nTracking UID: " << UD_to_track
-        			  << "\n\n----------------------------------\n";
-        	}
-        	catch (std::invalid_argument const& ex)
-        	{
-        	    std::cout << ex.what() << '\n';
-        	}
-    }
-
-    if (arguments.find(arg_learn_program_behaviour) != arguments.end() &&
-        arguments[arg_learn_program_behaviour].empty() == false) { // learning
-
-    	skel->bss->tracking_type = 3;
-    	std::string progName = arguments[arg_learn_program_behaviour][0];
-    	progName.copy(skel->bss->tracking_program_n_a_name, progName.length());
-
-    	std::cout << "\n----------------------------------\n\nTracking of " << arguments[arg_learn_program_behaviour][0]
-    	          << " program normal behaviour\n\n----------------------------------\n";
-    }
 }
 
 int main(int argc, char **argv)
 {
 	struct analyzer_bpf *skel;
-	int err;
 
     libbpf_set_print(libbpf_print_fn);
 
@@ -257,51 +343,11 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Failed to open BPF skeleton\n");
 		return 1;
 	}
-         
-// Preparing BPF maps --------------
-	create_or_reuse_map(BaseTableMapPathName, BPF_MAP_TYPE_ARRAY, sizeof(uint32_t), sizeof(struct BaseTableEntry),
-						skel->rodata->max_entries_BaseTableMap_c, skel->maps.BaseTableMap, BaseTableMap_map_fd); // Base Table
-	create_or_reuse_map(SyscllStatMapPathName, BPF_MAP_TYPE_HASH, sizeof(uint64_t), sizeof(uint64_t),
-						skel->rodata->max_entries_SyscllStat_c, skel->maps.SyscllStatMap, SyscllStatMap_map_fd); // Syscall Statistic
-	create_or_reuse_map(ProgNormalTracePathName, BPF_MAP_TYPE_HASH, sizeof(struct ProgNameType), sizeof(struct ProgSyscallsListType),
-						skel->rodata->max_entries_ProgNormalTrace_c, skel->maps.ProgNormalTrace, ProgNormalTrace_map_fd); // Programs Normal Traces
-        
-    std::cout << "\n----------------------------------\n\nAttached to pinned maps\n\n----------------------------------\n";
-      
-      
+
+
 // Processing arguments --------------
     process_arguments(argc, argv, skel);
- 
-// Reading data about the normal operation of programs from a disk in a ProgNormalTrace map  --------------
-    read_and_fill_normal_traces_map();
-
-// Load & verify BPF programs
-	err = analyzer_bpf__load(skel);
 	if (err) {
-		fprintf(stderr, "Failed to load and verify BPF skeleton\n");
-		goto cleanup;
+        return -cleanup(skel);
 	}
-
-// Attach tracepoints handler 
-	err = analyzer_bpf__attach(skel);
-	if (err) {
-		fprintf(stderr, "Failed to attach BPF skeleton\n");
-		goto cleanup;
-	}
-	
-	attach_handlers_to_syscalls(skel);
-        
-	printf("Successfully started! Please run `sudo cat /sys/kernel/debug/tracing/trace_pipe` "
-	       "to see output of the BPF programs.\n");
-
-// Activity
-	getchar(); // finishing
-
-    write_normal_traces_map_in_file();
-        
-    if(!keep_maps_alive_after_exit)
-          delete_maps(skel);
-cleanup:
-	analyzer_bpf__destroy(skel);
-	return -err;
 }
