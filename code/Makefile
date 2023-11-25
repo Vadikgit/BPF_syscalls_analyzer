@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 # Based on https://github.com/libbpf/libbpf-bootstrap
 OBJECTS := objects
+BINFILESDIR := binfiles
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
-LIBBPF_OBJ := $(abspath ../code/libbpf/libbpf.a)
+LIBBPF_OBJ := $(abspath ./libbpf/libbpf.a)
 BPFTOOL ?= $(abspath bpftool/bootstrap/bpftool)
 
 ARCH ?= $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/' | sed 's/ppc64le/powerpc/' \
 			 | sed 's/mips.*/mips/' | sed 's/arm.*/arm/' | sed 's/riscv64/riscv/')
 VMLINUX := ../vmlinux/$(ARCH)/vmlinux.h
 
-INCLUDES := -I$(abspath ../code) -I$(OBJECTS) -I../../libbpf/include/uapi -I$(dir $(VMLINUX))
+INCLUDES := -I$(abspath .) -I$(OBJECTS) -I../../libbpf/include/uapi -I$(dir $(VMLINUX))
 CFLAGS := -g -Wall
 ALL_LDFLAGS := $(LDFLAGS) $(EXTRA_LDFLAGS)
 
@@ -30,14 +31,21 @@ endef
 $(call allow-override,CC,$(CROSS_COMPILE)cc)
 $(call allow-override,LD,$(CROSS_COMPILE)ld)
 
-TOOLS = read_map read_stat read_names
+CTOOLS = read_map read_stat read_names
+CPPTOOLS = map_extractor
 
 .PHONY: all clean
 all: $(TOOLS)
 
 clean:
 	$(call msg,CLEAN)
-	@rm -rf $(OBJECTS)/* $(TOOLS) analyzer
+	@rm -rf $(OBJECTS)/* $(BINFILESDIR)/* $(CTOOLS) $(CPPTOOLS) analyzer
+	@rm -rf $(OBJECTS) $(BINFILESDIR)
+
+# Directories
+$(OBJECTS) $(BINFILESDIR):
+	$(call msg,MKDIR,$@)
+	$(Q)mkdir -p $@
 
 # Analyzer BPF code
 $(OBJECTS)/analyzer.bpf.o: analyzer.bpf.c $(LIBBPF_OBJ) $(wildcard %.h) $(VMLINUX) | $(OBJECTS)
@@ -56,18 +64,28 @@ $(OBJECTS)/analyzer.o: $(OBJECTS)/analyzer.skel.h analyzer.cpp $(wildcard analyz
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -c analyzer.cpp -o $@
 
 # Analyzer application binary
-analyzer: $(OBJECTS)/analyzer.o $(LIBBPF_OBJ) | $(OBJECTS)
+analyzer: $(OBJECTS)/analyzer.o $(LIBBPF_OBJ) map_extractor | $(OBJECTS)
 	$(call msg,BINARY,$@)
-	@$(CXX) $(CXXFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+	@$(CXX) $(CXXFLAGS) $(filter-out map_extractor,$^) $(ALL_LDFLAGS) -lelf -lz -o $@
+#	@$(CXX) $(CXXFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
 
-# Tools
-$(OBJECTS)/_tool_%.o: %.c *.h | $(OBJECTS)
+# CTools
+$(OBJECTS)/_ctool_%.o: %.c *.h | $(OBJECTS)
 	$(call msg,CC,$@)
 	@$(CC) $(CFLAGS) $(INCLUDES) -c $(filter %.c,$^) -o $@
 
-$(TOOLS): %: $(OBJECTS)/_tool_%.o $(LIBBPF_OBJ) | $(OBJECTS)
+$(CTOOLS): %: $(OBJECTS)/_ctool_%.o $(LIBBPF_OBJ) | $(OBJECTS)
 	$(call msg,BINARY,$@)
 	@$(CC) $(CFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+# CPPTools
+$(OBJECTS)/_cpptool_%.o: %.cpp *.h | $(OBJECTS)
+	$(call msg,CXX,$@)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -c $(filter %.cpp,$^) -o $@
+
+$(CPPTOOLS): %: $(OBJECTS)/_cpptool_%.o $(LIBBPF_OBJ) | $(OBJECTS) $(BINFILESDIR)
+	$(call msg,BINARY,$@)
+	@$(CXX) $(CXXFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
 	
 .DELETE_ON_ERROR:
 

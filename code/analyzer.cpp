@@ -21,10 +21,14 @@ int err;
 int BaseTableMap_map_fd  = -1;
 int SyscllStatMap_map_fd = -1;
 int ProgNormalTrace_map_fd = -1;
+int SeqNums_map_fd = -1;
+int ContinExtrFlag_map_fd = -1;
 
 std::string BaseTableMapPathName = "/sys/fs/bpf/BaseTableMap";
 std::string SyscllStatMapPathName = "/sys/fs/bpf/SyscllStatMap";
 std::string ProgNormalTracePathName = "/sys/fs/bpf/ProgNormalTrace";
+std::string SeqNumsPathName = "/sys/fs/bpf/SeqNums";
+std::string ContinExtrFlagPathName = "/sys/fs/bpf/ContinExtrFlag";
 
 std::string EnterHandlerPathName = "/sys/fs/bpf/handle_tp_enter";
 std::string ExitHandlerPathName = "/sys/fs/bpf/handle_tp_exit";
@@ -195,6 +199,8 @@ void delete_maps(struct analyzer_bpf *skel)
   bpf_map__unpin(skel->maps.BaseTableMap, BaseTableMapPathName.c_str());
   bpf_map__unpin(skel->maps.SyscllStatMap, SyscllStatMapPathName.c_str());
   bpf_map__unpin(skel->maps.ProgNormalTrace, ProgNormalTracePathName.c_str());
+  bpf_map__unpin(skel->maps.SeqNums, SeqNumsPathName.c_str());
+  bpf_map__unpin(skel->maps.ContinExtrFlag, ContinExtrFlagPathName.c_str());
 }
 
 int cleanup(struct analyzer_bpf *skel){
@@ -228,8 +234,24 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
     	    				skel->rodata->max_entries_SyscllStat_c, skel->maps.SyscllStatMap, SyscllStatMap_map_fd); // Syscall Statistic
     	create_or_reuse_map(ProgNormalTracePathName, BPF_MAP_TYPE_HASH, sizeof(struct ProgNameType), sizeof(struct ProgSyscallsListType),
     	    				skel->rodata->max_entries_ProgNormalTrace_c, skel->maps.ProgNormalTrace, ProgNormalTrace_map_fd); // Programs Normal Traces
+    	create_or_reuse_map(SeqNumsPathName, BPF_MAP_TYPE_ARRAY, sizeof(uint32_t), sizeof(uint64_t),
+    	    	    		3, skel->maps.SeqNums, SeqNums_map_fd); // Sequence Number
+    	create_or_reuse_map(ContinExtrFlagPathName, BPF_MAP_TYPE_ARRAY, sizeof(uint32_t), sizeof(uint8_t),
+    	    	    	   	1, skel->maps.ContinExtrFlag, ContinExtrFlag_map_fd); // Continue work of extractor
 
     	std::cout << "\n----------------------------------\n\nAttached to pinned maps\n\n----------------------------------\n";
+
+
+    	// Start map_extractor
+    	uint32_t ContinExtr_key = 0; uint8_t ContinExtr_val = 1;
+    	bpf_map_update_elem(ContinExtrFlag_map_fd, &ContinExtr_key, &ContinExtr_val, 0);
+    	std::system("./map_extractor > extractorlog.txt 2>&1 &");
+
+    	// Fill in max_entries_BaseTableMap_c SeqNums[2]
+    	uint32_t seqnum2 = 2;
+    	bpf_map_update_elem(SeqNums_map_fd, &seqnum2, &(skel->rodata->max_entries_BaseTableMap_c), 0);
+    	seqnum2 = 1;uint64_t seqnumsval = 0;
+    	bpf_map_update_elem(SeqNums_map_fd, &seqnum2, &seqnumsval, 0);
 
     	// Reading data about the normal operation of programs from a disk in a ProgNormalTrace map
     	read_and_fill_normal_traces_map();
@@ -309,6 +331,12 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
 
 
     if (arguments.find(arg_stop_analyzer) != arguments.end()) { // analyzer stoped
+
+    	// Stop map_extractor
+    	create_or_reuse_map(ContinExtrFlagPathName, BPF_MAP_TYPE_ARRAY, sizeof(uint32_t), sizeof(uint8_t),
+    	    	    	    	   	1, skel->maps.ContinExtrFlag, ContinExtrFlag_map_fd); // Continue work of extractor
+    	uint32_t ContinExtr_key = 0; uint8_t ContinExtr_val = 0;
+    	bpf_map_update_elem(ContinExtrFlag_map_fd, &ContinExtr_key, &ContinExtr_val, 0);
 
         // Unpin tracepoints handlers
     	delete__handlers_and_links(skel);

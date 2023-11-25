@@ -66,7 +66,7 @@ struct { // pinned
 	__type(value, struct BaseTableEntry);
 } BaseTableMap SEC(".maps");
 
-struct { 
+struct { // not pinned
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, max_entries_PIDActGlbSclN_c);
 	__type(key, uint64_t);
@@ -86,6 +86,22 @@ struct { // pinned
 	__type(key, struct ProgNameType);
 	__type(value, struct ProgSyscallsListType);
 } ProgNormalTrace SEC(".maps");
+
+struct { // pinned
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 3);
+	__type(key, uint32_t);
+	__type(value, uint64_t);
+} SeqNums SEC(".maps"); // [0] - current global_number, [1] - next global_number to save since, [2] - max_entries_BaseTableMap_c
+
+struct { // pinned
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, uint32_t);
+	__type(value, uint8_t);
+} ContinExtrFlag SEC(".maps"); // [0] - bool, 0-> stop extractor, 1->continue
+
+
 
 
 bool is_relevant()
@@ -174,6 +190,9 @@ int common_handle(struct sys_enter_args *ctx)
     
     global_number++;
     base_table_local_number = global_number % max_entries_BaseTableMap_c;
+
+    uint32_t seq_num_key = 0;
+    bpf_map_update_elem(&SeqNums, &seq_num_key, &global_number, BPF_ANY);
     key = base_table_local_number;
     
 // Statistic
