@@ -1,0 +1,78 @@
+make map_extractor
+make analyzer
+make read_stat
+make read_map
+
+sudo ./analyzer -start
+sudo ./read_map 1000 10
+sudo ./analyser -stop
+
+sudo bpftool map
+
+sudo ./analyzer -start -pid 5511
+
+sudo cat /sys/kernel/debug/tracing/trace_pipe
+
+
+docker run --rm --name linux -it ubuntu:18.04 /bin/bash
+
+
+docker top naughty_mccarthy
+
+sudo apt-get install iputils-ping
+
+apt-get update
+
+pstree -p
+
+docker exec -ti linux sh
+
+apt-get install psmisc
+
+
+from proc:
+ cat 6141/status | grep -i NSpid
+
+uname -r
+
+stat --printf='%d %i' /proc/self/ns/pid
+stat /proc/self/ns/pid
+
+
+docker run --name linux -it --rm ubuntu:latest /bin/bash
+docker run -v shared_vol:/home/ubuntu/vol --name linux -it --rm ubuntu:18.04 /bin/bash
+docker run -v "/home/vadim/Документы/prog/bpf_process_tree_builder/shared_vol:/home/ubuntu/vol" --name linux -it --rm ubuntu:latest /bin/bash
+docker run --name py_app -it --rm vadksen01/python_app
+docker inspect -f '{{.State.Pid}}' <container id>
+
+pstree -ps -U 12655
+
+
+
+sudo ./tree_extractor 6 7 8
+
+5816
+sudo bpftool map update name to_track_pid key 0 0 0 0 value 184 22 0 0
+
+printf "%x\n" 5816
+16b8
+
+6737
+sudo bpftool map update name to_track_pid key 0 0 0 0 value hex 51 1a 0 0
+
+
+source script.sh
+recProcedure 0
+
+
+sudo ./read_map 17 "1 2 3 4" 930 20
+
+bash -c "source script.sh; ls; ping ya.ru -c 1; recProcedure $i; exit"
+bash -c "source script.sh; ls; ps; recProcedure $i; exit"
+
+
+
+/usr/bin/time --format "%U %e %S" dd if=/dev/sda3 of=/dev/null bs=4000B count=2000000
+time dd if=/dev/sda of=/dev/null bs=4096B count=800000
+
+mapfile -t my_array < <( { /usr/bin/time --format "%U\n%e\n%S\n" dd if=/dev/sda3 of=/dev/null bs=4000B count=100000 status=none; } 2>&1 )
