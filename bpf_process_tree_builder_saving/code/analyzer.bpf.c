@@ -101,6 +101,22 @@ struct
   __type(value, struct ProgNameType);
 } PID_comm SEC(".maps");
 
+struct
+{ // not pinned
+  __uint(type, BPF_MAP_TYPE_ARRAY);
+  __uint(max_entries, 3);
+  __type(key, uint32_t);
+  __type(value, uint64_t);
+} SeqNums SEC(".maps"); // [0] - current global_number, [1] - next global_number to save since, [2] - max_entries_BaseTableMap_c
+
+// struct
+//{ // not pinned
+//   __uint(type, BPF_MAP_TYPE_ARRAY);
+//   __uint(max_entries, 1);
+//   __type(key, uint32_t);
+//   __type(value, uint8_t);
+//  } ContinExtrFlag SEC(".maps"); // [0] - bool, 0-> stop extractor, 1->continue
+
 bool is_relevant_enter()
 {
   uint64_t cur_pid_tgid = bpf_get_current_pid_tgid();
@@ -184,6 +200,9 @@ int common_handle_enter(struct sys_enter_args *ctx)
 
   global_number++;
   base_table_local_number = global_number % max_entries_BaseTableMap_c;
+
+  uint32_t seq_num_key = 0;
+  bpf_map_update_elem(&SeqNums, &seq_num_key, &global_number, BPF_ANY);
 
   key = base_table_local_number;
 

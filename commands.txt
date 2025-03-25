@@ -53,6 +53,7 @@ sudo ./tree_extractor 6 7 8
 
 5816
 sudo bpftool map update name to_track_pid key 0 0 0 0 value 184 22 0 0
+sudo bpftool map dump name SeqNums
 
 printf "%x\n" 5816
 16b8
@@ -76,3 +77,115 @@ bash -c "source script.sh; ls; ps; recProcedure $i; exit"
 time dd if=/dev/sda of=/dev/null bs=4096B count=800000
 
 mapfile -t my_array < <( { /usr/bin/time --format "%U\n%e\n%S\n" dd if=/dev/sda3 of=/dev/null bs=4000B count=100000 status=none; } 2>&1 )
+
+
+
+
+
+docker pull apache/kafka:3.8.0
+docker run -p 9092:9092 apache/kafka:3.8.0
+docker ps
+
+docker exec -it -w /opt/kafka/bin funny_satoshi sh
+
+
+./kafka-topics.sh --create --topic test --bootstrap-server 127.0.0.1:9092
+
+./kafka-topics.sh --delete --topic test --bootstrap-server localhost:9092
+
+
+./kafka-console-consumer.sh --topic test --bootstrap-server 127.0.0.1:9092 \
+--from-beginning \
+--property print.key=true \
+--property print.value=true \
+--property key.separator=" : " \
+--key-deserializer "org.apache.kafka.common.serialization.IntegerDeserializer"
+
+./kafka-console-consumer.sh --topic test --bootstrap-server 127.0.0.1:9092 \
+--from-beginning \
+--property print.key=true \
+--property print.value=true \
+--property key.separator=" : " 
+
+./kafka-console-consumer.sh --topic test --bootstrap-server 127.0.0.1:9092 \
+--property print.key=true \
+--property print.value=true \
+--property key.separator=" : " \
+--key-deserializer "org.apache.kafka.common.serialization.IntegerDeserializer"
+
+
+./kafka-console-producer.sh --topic user-statuses-topic --bootstrap-server 127.0.0.1:9092
+
+./kafka-console-consumer.sh --topic user-statuses-topic --from-beginning --bootstrap-server 127.0.0.1:9092
+
+
+./kafka-console-consumer.sh --topic pulse --bootstrap-server 127.0.0.1:9092 \
+--from-beginning \
+--value-deserializer "org.apache.kafka.common.serialization.IntegerDeserializer"
+
+
+./kafka-console-consumer.sh --topic pulse --bootstrap-server 127.0.0.1:9092 \
+--property print.key=true \
+--property print.value=true \
+--property key.separator=" : " \
+--key-deserializer "org.apache.kafka.common.serialization.LongDeserializer" \
+--value-deserializer "org.apache.kafka.common.serialization.IntegerDeserializer"
+
+./kafka-console-consumer.sh --topic pulse_for_10min --bootstrap-server 127.0.0.1:9092 \
+--property print.key=true \
+--property print.value=true \
+--property key.separator=" : " \
+--key-deserializer "org.apache.kafka.common.serialization.LongDeserializer" \
+--value-deserializer "org.apache.kafka.common.serialization.DoubleDeserializer"
+
+
+./kafka-console-consumer.sh --topic location --bootstrap-server 127.0.0.1:9092 \
+--from-beginning \
+--property print.key=true \
+--property print.value=true \
+--property key.separator=" : " \
+--key-deserializer "org.apache.kafka.common.serialization.LongDeserializer" \
+--value-deserializer "org.apache.kafka.common.serialization.BytesDeserializer"
+
+
+./kafka-console-consumer.sh --topic average_speed_vector --bootstrap-server 127.0.0.1:9092 \
+--from-beginning \
+--property print.key=true \
+--property print.value=true \
+--property key.separator=" : " \
+--key-deserializer "org.apache.kafka.common.serialization.LongDeserializer" \
+--value-deserializer "org.apache.kafka.common.serialization.BytesDeserializer"
+
+
+
+./kafka-console-consumer.sh --topic average_speed_vector --bootstrap-server 127.0.0.1:9092 \
+--property print.key=true \
+--property print.value=true \
+--property key.separator=" : " \
+--key-deserializer "org.apache.kafka.common.serialization.LongDeserializer"
+
+
+
+./kafka-console-consumer.sh --topic motion_point --bootstrap-server 127.0.0.1:9092 \
+--property print.key=true \
+--property print.value=true \
+--property key.separator=" : " \
+--key-deserializer "org.apache.kafka.common.serialization.LongDeserializer"
+
+
+./kafka-console-consumer.sh --topic most_filled_sectors --bootstrap-server 127.0.0.1:9092
+
+./kafka-console-producer.sh  --topic user-statuses-topic --bootstrap-server 127.0.0.1:9092
+
+
+/home/vadim/python3.7/bin/python tcp_server_with_kafka_producer.py
+
+
+flink:
+cd flink/flink-2.0-preview1
+
+./bin/start-cluster.sh
+
+./bin/flink run examples/streaming/WordCount.jar --input "/home/vadim/stream_data_analysis/flink/input.txt" --output "/home/vadim/stream_data_analysis/flink/output.txt"
+
+./flink run /home/vadim/stream_data_analysis/flink/untitled/trying2/build/libs/trying2-0.1-SNAPSHOT-all.jar

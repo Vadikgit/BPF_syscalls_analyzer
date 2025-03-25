@@ -7,6 +7,9 @@ LLVM_STRIP ?= llvm-strip
 LIBBPF_OBJ := $(abspath ./libbpf/libbpf.a)
 BPFTOOL ?= $(abspath bpftool/bootstrap/bpftool)
 
+KAFKA_CPPFLAGS=-Wall $(shell pkg-config --cflags glib-2.0 rdkafka)
+KAFKA_LDLIBS=$(shell pkg-config --libs glib-2.0 rdkafka)
+
 ARCH ?= $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/' | sed 's/ppc64le/powerpc/' \
 			 | sed 's/mips.*/mips/' | sed 's/arm.*/arm/' | sed 's/riscv64/riscv/')
 VMLINUX := ../vmlinux/$(ARCH)/vmlinux.h
@@ -32,14 +35,14 @@ $(call allow-override,CC,$(CROSS_COMPILE)cc)
 $(call allow-override,LD,$(CROSS_COMPILE)ld)
 
 CTOOLS = read_stat read_names
-CPPTOOLS = map_extractor tree_extractor read_map
+CPPTOOLS = tree_extractor read_map
 
 .PHONY: all clean
 all: $(TOOLS)
 
 clean:
 	$(call msg,CLEAN)
-	@rm -rf $(OBJECTS)/* $(BINFILESDIR)/* $(CTOOLS) $(CPPTOOLS) analyzer
+	@rm -rf $(OBJECTS)/* $(BINFILESDIR)/* $(CTOOLS) $(CPPTOOLS) analyzer map_extractor
 	@rm -rf $(OBJECTS) $(BINFILESDIR)
 
 # Directories
@@ -68,6 +71,10 @@ analyzer: $(OBJECTS)/analyzer.o $(LIBBPF_OBJ) map_extractor | $(OBJECTS)
 	$(call msg,BINARY,$@)
 	@$(CXX) $(CXXFLAGS) $(filter-out map_extractor,$^) $(ALL_LDFLAGS) -lelf -lz -o $@
 #	@$(CXX) $(CXXFLAGS) $^ $(ALL_LDFLAGS) -lelf -lz -o $@
+
+map_extractor: map_extractor.cpp $(LIBBPF_OBJ)
+	$(call msg,BINARY,$@)
+	@$(CXX) $(CXXFLAGS) $(KAFKA_CPPFLAGS) $(INCLUDES) $^ $(ALL_LDFLAGS) -lelf -lz $(KAFKA_LDLIBS) -o $@
 
 # CTools
 $(OBJECTS)/_ctool_%.o: %.c *.h | $(OBJECTS)

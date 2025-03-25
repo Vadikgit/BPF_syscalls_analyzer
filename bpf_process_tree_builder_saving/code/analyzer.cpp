@@ -21,6 +21,12 @@
 //
 int err;
 
+int SeqNums_map_fd = -1;
+int ContinExtrFlag_map_fd = -1;
+int BaseTableMap_map_fd = -1;
+
+std::string ContinExtrFlagPathName = "/sys/fs/bpf/ContinExtrFlag";
+
 std::string EnterHandlerPathName = "/sys/fs/bpf/handle_tp_enter";
 std::string ExitHandlerPathName = "/sys/fs/bpf/handle_tp_exit";
 
@@ -36,6 +42,32 @@ std::unordered_map<std::string, std::vector<std::string>> arguments;
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
   return vfprintf(stderr, format, args);
+}
+
+void create_or_reuse_map(std::string pathName, bpf_map_type mapType, uint32_t keySize, uint32_t valSize,
+                         uint64_t maxEntries, struct bpf_map *mapPointerInScel, int &mapFd)
+{
+
+  mapFd = bpf_obj_get(pathName.c_str());
+
+  bool notFoundMap = (mapFd < 0);
+
+  std::cout << "\n----------------------------------\n"
+            << pathName
+            << " file descriptor: " << mapFd << "\n----------------------------------\n";
+
+  if (notFoundMap)
+  {
+    std::cout << "\n----------------------------------\n\nPinned map " << pathName
+              << " NOT FOUND\n\nCreating new ...\n\n----------------------------------\n";
+
+    mapFd = bpf_map_create(mapType, pathName.substr(pathName.rfind('/') + 1).c_str(), keySize, valSize, maxEntries, 0);
+  }
+
+  bpf_map__reuse_fd(mapPointerInScel, mapFd);
+
+  if (notFoundMap)
+    bpf_map__pin(mapPointerInScel, pathName.c_str());
 }
 
 void attach_handlers_to_syscalls_and_pin_links(struct analyzer_bpf *skel)
@@ -117,6 +149,66 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
       return;
     }
 
+    // Preparing BPF maps
+    SeqNums_map_fd = bpf_map__fd(skel->maps.SeqNums);
+    BaseTableMap_map_fd = bpf_map__fd(skel->maps.BaseTableMap);
+    // ContinExtrFlag_map_fd = bpf_map__fd(skel->maps.ContinExtrFlag);
+
+    ContinExtrFlag_map_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, ContinExtrFlagPathName.substr(ContinExtrFlagPathName.rfind('/') + 1).c_str(), sizeof(uint32_t), sizeof(uint8_t), 1, 0);
+    bpf_obj_pin(ContinExtrFlag_map_fd, ContinExtrFlagPathName.c_str());
+    // SeqNums_map_fd = bpf_object__find_map_fd_by_name(skel->obj, "SeqNums");
+    // ContinExtrFlag_map_fd = bpf_object__find_map_fd_by_name(skel->obj, "ContinExtrFlag");
+
+    printf("\n----------------------------------\n");
+    printf("BaseTableMap_map_fd: %d\n", BaseTableMap_map_fd);
+    printf("SeqNums_map_fd: %d\n", SeqNums_map_fd);
+    printf("ContinExtrFlag_map_fd: %d\n", ContinExtrFlag_map_fd);
+    printf("----------------------------------\n");
+
+    struct bpf_map_info mp_info = {};
+    uint32_t info_len = sizeof(mp_info);
+
+    int BaseTableMap_map_id = -1;
+    int SeqNums_map_id = -1;
+    int ContinExtrFlag_map_id = -1;
+
+    bpf_map_get_info_by_fd(BaseTableMap_map_fd, &mp_info, &info_len);
+    BaseTableMap_map_id = mp_info.id;
+
+    bpf_map_get_info_by_fd(SeqNums_map_fd, &mp_info, &info_len);
+    SeqNums_map_id = mp_info.id;
+
+    bpf_map_get_info_by_fd(ContinExtrFlag_map_fd, &mp_info, &info_len);
+    ContinExtrFlag_map_id = mp_info.id;
+
+    printf("\n----------------INFO------------------\n");
+    printf("BaseTableMap_map_id: %d\n", BaseTableMap_map_id);
+    printf("SeqNums_map_id: %d\n", SeqNums_map_id);
+    printf("ContinExtrFlag_map_id: %d\n", ContinExtrFlag_map_id);
+    printf("\n----------------------------------\n");
+
+    // create_or_reuse_map(SeqNumsPathName, BPF_MAP_TYPE_ARRAY, sizeof(uint32_t), sizeof(uint64_t),
+    //                         3, skel->maps.SeqNums, SeqNums_map_fd); // Sequence Number
+    // create_or_reuse_map(ContinExtrFlagPathName, BPF_MAP_TYPE_ARRAY, sizeof(uint32_t), sizeof(uint8_t),
+    //                     1, skel->maps.ContinExtrFlag, ContinExtrFlag_map_fd); // Continue work of extractor
+
+    std::cout << "\n----------------------------------\n\nAttached to maps\n\n----------------------------------\n";
+
+    // Start map_extractor
+    uint32_t ContinExtr_key = 0;
+    uint8_t ContinExtr_val = 1;
+    bpf_map_update_elem(ContinExtrFlag_map_fd, &ContinExtr_key, &ContinExtr_val, 0);
+
+    std::string map_extractor_command = std::string("./map_extractor ") + std::to_string(BaseTableMap_map_id) + " " + std::to_string(SeqNums_map_id) + " " + std::to_string(ContinExtrFlag_map_id) + std::string(" > extractorlog.txt 2>&1 &");
+    std::system(map_extractor_command.c_str());
+
+    // Fill in max_entries_BaseTableMap_c SeqNums[2]
+    uint32_t seqnum2 = 2;
+    bpf_map_update_elem(SeqNums_map_fd, &seqnum2, &(skel->rodata->max_entries_BaseTableMap_c), 0);
+    seqnum2 = 1;
+    uint64_t seqnumsval = 0;
+    bpf_map_update_elem(SeqNums_map_fd, &seqnum2, &seqnumsval, 0);
+
     // Attach tracepoints handler
     err = analyzer_bpf__attach(skel);
     if (err)
@@ -151,6 +243,20 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
 
   if (arguments.find(arg_stop_analyzer) != arguments.end())
   { // analyzer stoped
+    // Stop map_extractor
+    // ContinExtrFlag_map_fd = bpf_map__fd(skel->maps.ContinExtrFlag);
+    // ContinExtrFlag_map_fd = bpf_object__find_map_fd_by_name(skel->obj, "ContinExtrFlag");
+
+    ContinExtrFlag_map_fd = bpf_obj_get(ContinExtrFlagPathName.c_str());
+
+    printf("\n----------------------------------\n");
+    printf("\nContinExtrFlag_map_fd: %d\n", ContinExtrFlag_map_fd);
+    printf("\n----------------------------------\n");
+    uint32_t ContinExtr_key = 0;
+    uint8_t ContinExtr_val = 0;
+    bpf_map_update_elem(ContinExtrFlag_map_fd, &ContinExtr_key, &ContinExtr_val, 0);
+
+    // std::system((std::string("rm /sys/fs/bpf/") + ContinExtrFlagPathName.substr(ContinExtrFlagPathName.rfind('/') + 1)).c_str());
 
     // Unpin tracepoints handlers
     delete__handlers_and_links(skel);

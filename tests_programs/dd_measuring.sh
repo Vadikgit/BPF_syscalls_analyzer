@@ -2,15 +2,15 @@
 DD_INPUT_FILE="/dev/sda3"
 DD_OUTPUT_FILE="/dev/null"
 
-PATH_TO_ANALYZER_DIR="../bpf_process_tree_builder_saving/BPF_syscalls_analyzer/code/"
+PATH_TO_ANALYZER_DIR="../bpf_process_tree_builder_saving/code/"
 
-NUM_OF_ITERATIONS=10
+NUM_OF_ITERATIONS=5
 #AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=6442450944
-AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=8589934592
-#AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=644245094
+#AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=8589934592
+AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=644245094
 MIN_BLOCK_SIZE=1024
-#MAX_BLOCK_SIZE=16384
-MAX_BLOCK_SIZE=67108864
+MAX_BLOCK_SIZE=16384
+#MAX_BLOCK_SIZE=67108864
 BLOCK_SIZE_MULTIPLIER=16
 #MAX_BLOCK_SIZE=2048
 
@@ -92,20 +92,21 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 printf "\n\n"
-printf " block size, |  Real no  | Real with |Degradation|  User no  | User with |Degradation| Kernel no |Kernel with|Degradation\n"
-printf "    bytes    |  load, s  |  load, s  |    , %%    |  load, s  |  load, s  |    , %%    |  load, s  |  load, s  |    , %%    \n"
+printf " block size, |  number of  |  Real no  | Real with |Degradation|  User no  | User with |Degradation| Kernel no |Kernel with|Degradation\n"
+printf "    bytes    |   syscalls  |  load, s  |  load, s  |    , %%    |  load, s  |  load, s  |    , %%    |  load, s  |  load, s  |    , %%    \n"
 
 for ((block_size=MIN_BLOCK_SIZE;block_size<=MAX_BLOCK_SIZE;block_size*=BLOCK_SIZE_MULTIPLIER))
 do
-	echo '-------------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------'
-	printf '    %-8s |' "$block_size"
-	printf "   %-8s|   %-8s|   ${RED}%-8s${NC}|" "${AVG_REAL_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]}" "${AVG_REAL_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]}" `awk -v a=${AVG_REAL_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]} -v b=${AVG_REAL_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]} 'BEGIN {print (b - a)/a*100}'` 
-	printf "   %-8s|   %-8s|   ${RED}%-8s${NC}|" "${AVG_USER_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]}" "${AVG_USER_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]}" `awk -v a=${AVG_USER_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]} -v b=${AVG_USER_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]} 'BEGIN {print (b - a)/a*100}'`
-	printf "   %-8s|   %-8s|   ${RED}%-8s\n${NC}" "${AVG_KERNEL_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]}" "${AVG_KERNEL_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]}" `awk -v a=${AVG_KERNEL_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]} -v b=${AVG_KERNEL_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]} 'BEGIN {print (b - a)/a*100}'`
+	echo '-------------|-------------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------'
+	printf '%-13s|' "$block_size"
+	printf '%-13s|' "$(($AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES / $block_size * 2))"
+	printf "   %-8s|   %-8s|   ${RED}%-8s${NC}|" "${AVG_REAL_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]}" "${AVG_REAL_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]}" `awk -v a=${AVG_REAL_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]} -v b=${AVG_REAL_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]} 'BEGIN {printf "%.3f", (b - a)/a*100}'` 
+	printf "   %-8s|   %-8s|   ${RED}%-8s${NC}|" "${AVG_USER_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]}" "${AVG_USER_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]}" `awk -v a=${AVG_USER_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]} -v b=${AVG_USER_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]} 'BEGIN {printf "%.3f", (b - a)/a*100}'`
+	printf "   %-8s|   %-8s|   ${RED}%-8s\n${NC}" "${AVG_KERNEL_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]}" "${AVG_KERNEL_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]}" `awk -v a=${AVG_KERNEL_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]} -v b=${AVG_KERNEL_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]} 'BEGIN {printf "%.3f", (b - a)/a*100}'`
+	printf "             |             |%-11s|%-11s|           |           |           |           |           |           |           \n" `awk -v a=$(($AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES / $block_size * 2)) -v b=${AVG_REAL_TIME_FOR_BLOCKS_WITH_NOLOAD[$block_size]} 'BEGIN {print a/b}'` `awk -v a=$(($AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES / $block_size * 2)) -v b=${AVG_REAL_TIME_FOR_BLOCKS_WITH_LOAD[$block_size]} 'BEGIN {print a/b}'`
 done
 
 printf "\n\n"
-
 
 #printf "\n\n"
 #printf " block size, |   Real,   |   User,   |  Kernel,  \n"
