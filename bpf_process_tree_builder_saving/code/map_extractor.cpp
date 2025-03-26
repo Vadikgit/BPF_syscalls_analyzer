@@ -155,14 +155,9 @@ int main(int argc, char **argv)
 
 		if ((glob_num - next_saving_num) >= extract_offset)
 		{
-			std::string filename = std::string("binfiles/file") + std::to_string(fileCtr) + std::string(".bin");
-			fileCtr++;
-
-			std::ofstream outf(filename, std::ios::binary);
-
 			std::chrono::time_point<std::chrono::system_clock> t1, t2;
 
-			std::cout << "\nStart of extracting in " << filename << " ---------------------------------- | ";
+			std::cout << "\nStart of extracting in topic ---------------------------------- | ";
 			printTimestamp();
 			std::cout << '\n';
 
@@ -177,7 +172,39 @@ int main(int argc, char **argv)
 				bpf_map_lookup_elem(BaseTableMap_map_fd, &arr_key, &arr[i - next_saving_num]);
 			}
 
-			outf.write((char *)&arr[0], sizeof(arr[0]) * extract_offset);
+			key = fileCtr;
+			fileCtr++;
+
+			rd_kafka_resp_err_t err;
+
+			err = rd_kafka_producev(producer,
+									RD_KAFKA_V_TOPIC(topic),
+									RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
+									RD_KAFKA_V_KEY((void *)&key, sizeof(key)),
+									RD_KAFKA_V_VALUE((void *)&arr[0], sizeof(arr[0]) * extract_offset),
+									RD_KAFKA_V_OPAQUE(NULL),
+									RD_KAFKA_V_END);
+
+			if (err)
+			{
+				g_error("Failed to produce to topic %s: %s", topic, rd_kafka_err2str(err));
+				return 1;
+			}
+			else
+			{
+				g_message("Produced event to topic %s: key = %12d", topic, key);
+			}
+
+			rd_kafka_poll(producer, 0);
+
+			// Block until the messages are all sent.
+			g_message("Flushing final messages..");
+			rd_kafka_flush(producer, 10 * 1000);
+
+			if (rd_kafka_outq_len(producer) > 0)
+			{
+				g_error("%d message(s) were not delivered", rd_kafka_outq_len(producer));
+			}
 
 			seqnumkey = 1;
 			next_saving_num += extract_offset;
@@ -185,46 +212,11 @@ int main(int argc, char **argv)
 
 			t2 = std::chrono::system_clock::now();
 
-			std::cout << "\nEnd of extracting in " << filename << "\t" << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " ms, "
+			std::cout << "\nEnd of extracting in topic \t" << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " ms, "
 					  << sizeof(BaseTableEntry) * extract_offset << " bytes, "
 					  << double(std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()) / (sizeof(BaseTableEntry) * extract_offset) << " ms/byte ---------------------------------- | ";
 			printTimestamp();
 			std::cout << '\n';
-		}
-
-		key = glob_num;
-		const char *value = products[random() % ARR_SIZE(products)];
-		size_t value_len = strlen(value);
-
-		rd_kafka_resp_err_t err;
-
-		err = rd_kafka_producev(producer,
-								RD_KAFKA_V_TOPIC(topic),
-								RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
-								RD_KAFKA_V_KEY((void *)&key, sizeof(key)),
-								RD_KAFKA_V_VALUE((void *)value, value_len),
-								RD_KAFKA_V_OPAQUE(NULL),
-								RD_KAFKA_V_END);
-
-		if (err)
-		{
-			g_error("Failed to produce to topic %s: %s", topic, rd_kafka_err2str(err));
-			return 1;
-		}
-		else
-		{
-			g_message("Produced event to topic %s: key = %12d value = %12s", topic, key, value);
-		}
-
-		rd_kafka_poll(producer, 0);
-
-		// Block until the messages are all sent.
-		g_message("Flushing final messages..");
-		rd_kafka_flush(producer, 10 * 1000);
-
-		if (rd_kafka_outq_len(producer) > 0)
-		{
-			g_error("%d message(s) were not delivered", rd_kafka_outq_len(producer));
 		}
 
 		//

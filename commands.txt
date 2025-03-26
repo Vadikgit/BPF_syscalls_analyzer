@@ -102,7 +102,7 @@ docker exec -it -w /opt/kafka/bin funny_satoshi sh
 --key-deserializer "org.apache.kafka.common.serialization.IntegerDeserializer"
 
 ./kafka-console-consumer.sh --topic test --bootstrap-server 127.0.0.1:9092 \
---from-beginning \
+
 --property print.key=true \
 --property print.value=true \
 --property key.separator=" : " 
@@ -112,6 +112,12 @@ docker exec -it -w /opt/kafka/bin funny_satoshi sh
 --property print.value=true \
 --property key.separator=" : " \
 --key-deserializer "org.apache.kafka.common.serialization.IntegerDeserializer"
+
+./kafka-console-consumer.sh --topic test --bootstrap-server 127.0.0.1:9092 \
+--from-beginning \
+--property print.key=true \
+--property print.value=false \
+--key-deserializer "org.apache.kafka.common.serialization.BytesDeserializer"
 
 
 ./kafka-console-producer.sh --topic user-statuses-topic --bootstrap-server 127.0.0.1:9092
