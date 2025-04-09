@@ -31,6 +31,15 @@ bpf_container_process_tree_builder/code/read_names
 bpf_container_process_tree_builder/code/read_map
 bpf_container_process_tree_builder/code/tree_extractor
 
+bpf_process_tree_builder_ringbuf/code/objects
+bpf_process_tree_builder_ringbuf/code/analyzer
+bpf_process_tree_builder_ringbuf/code/map_extractor
+bpf_process_tree_builder_ringbuf/code/extractorlog.txt
+bpf_process_tree_builder_ringbuf/code/read_stat
+bpf_process_tree_builder_ringbuf/code/read_names
+bpf_process_tree_builder_ringbuf/code/read_map
+bpf_process_tree_builder_ringbuf/code/tree_extractor
+
 initial_version/code/objects
 initial_version/code/analyzer
 initial_version/code/map_extractor
@@ -47,3 +56,6 @@ tests_programs/stat
 tests_programs/timer
 tests_programs/disk_write
 tests_programs/threads
+tests_programs/map_access_test
+
+kafka_test/producer

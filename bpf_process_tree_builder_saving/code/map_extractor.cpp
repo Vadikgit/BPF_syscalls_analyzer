@@ -46,6 +46,8 @@ void printTimestamp()
 	std::cout << std::put_time(std::localtime(&now_c), "%Y-%m-%d %X");
 }
 
+std::string ContinExtrFlagPathName = "/sys/fs/bpf/ContinExtrFlag";
+
 int main(int argc, char **argv)
 {
 	int err;
@@ -226,6 +228,8 @@ int main(int argc, char **argv)
 
 		iterctr++;
 	}
+
+	std::system((std::string("rm /sys/fs/bpf/") + ContinExtrFlagPathName.substr(ContinExtrFlagPathName.rfind('/') + 1)).c_str());
 
 	rd_kafka_destroy(producer);
 

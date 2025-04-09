@@ -3,22 +3,24 @@
 
 #include "common.cpp"
 
-#define ARR_SIZE(arr) ( sizeof((arr)) / sizeof((arr[0])) )
-
+#define ARR_SIZE(arr) (sizeof((arr)) / sizeof((arr[0])))
 
 /* Optional per-message delivery callback (triggered by poll() or flush())
  * when a message has been successfully delivered or permanently
  * failed delivery (after retries).
  */
-static void dr_msg_cb (rd_kafka_t *kafka_handle,
-                       const rd_kafka_message_t *rkmessage,
-                       void *opaque) {
-    if (rkmessage->err) {
+static void dr_msg_cb(rd_kafka_t *kafka_handle,
+                      const rd_kafka_message_t *rkmessage,
+                      void *opaque)
+{
+    if (rkmessage->err)
+    {
         g_error("Message delivery failed: %s", rd_kafka_err2str(rkmessage->err));
     }
 }
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv)
+{
     rd_kafka_t *producer;
     rd_kafka_conf_t *conf;
     char errstr[512];
@@ -27,21 +29,27 @@ int main (int argc, char **argv) {
     conf = rd_kafka_conf_new();
 
     // User-specific properties that you must set
-    set_config(conf, "bootstrap.servers", "127.0.0.1:9092");
-    set_config(conf, "sasl.username",     "<CLUSTER API KEY>");
-    set_config(conf, "sasl.password",     "<CLUSTER API SECRET>");
-    
+    set_config(conf, "bootstrap.servers", "");
+    set_config(conf, "sasl.username", "");
+    set_config(conf, "sasl.password", "");
+
     // Fixed properties
-    //set_config(conf, "security.protocol", "SASL_SSL");
-    set_config(conf, "sasl.mechanisms",   "PLAIN");
-    set_config(conf, "acks",              "all");
+    /*    // set_config(conf, "security.protocol", "SASL_SSL");
+        set_config(conf, "sasl.mechanisms", "PLAIN");
+        set_config(conf, "acks", "all");*/
+
+    set_config(conf, "security.protocol", "SASL_SSL");
+    set_config(conf, "sasl.mechanisms", "SCRAM-SHA-512");
+    set_config(conf, "acks", "all");
+    set_config(conf, "ssl.ca.location", "/usr/local/share/ca-certificates/Yandex/YandexInternalRootCA.crt");
 
     // Install a delivery-error callback.
     rd_kafka_conf_set_dr_msg_cb(conf, dr_msg_cb);
 
     // Create the Producer instance.
     producer = rd_kafka_new(RD_KAFKA_PRODUCER, conf, errstr, sizeof(errstr));
-    if (!producer) {
+    if (!producer)
+    {
         g_error("Failed to create new producer: %s", errstr);
         return 1;
     }
@@ -53,12 +61,16 @@ int main (int argc, char **argv) {
     int message_count = 10;
     const char *topic = "test";
     const char *products[5] = {"book", "alarm clock", "t-shirts", "gift card", "batteries"};
+    const char *vals[message_count] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10"};
 
     uint32_t key = 0;
 
-    for (int i = 0; i < message_count; i++) {
+    for (int i = 0; i < message_count; i++)
+    {
         key = i;
-        const char *value =  products[random() % ARR_SIZE(products)];
+        //        const char *value = products[random() % ARR_SIZE(products)];
+        const char *value = vals[i];
+
         size_t value_len = strlen(value);
 
         rd_kafka_resp_err_t err;
@@ -66,15 +78,18 @@ int main (int argc, char **argv) {
         err = rd_kafka_producev(producer,
                                 RD_KAFKA_V_TOPIC(topic),
                                 RD_KAFKA_V_MSGFLAGS(RD_KAFKA_MSG_F_COPY),
-                                RD_KAFKA_V_KEY((void*)&key, sizeof(key)),
-                                RD_KAFKA_V_VALUE((void*)value, value_len),
+                                RD_KAFKA_V_KEY((void *)&key, sizeof(key)),
+                                RD_KAFKA_V_VALUE((void *)value, value_len),
                                 RD_KAFKA_V_OPAQUE(NULL),
                                 RD_KAFKA_V_END);
 
-        if (err) {
+        if (err)
+        {
             g_error("Failed to produce to topic %s: %s", topic, rd_kafka_err2str(err));
             return 1;
-        } else {
+        }
+        else
+        {
             g_message("Produced event to topic %s: key = %12d value = %12s", topic, key, value);
         }
 
@@ -85,7 +100,8 @@ int main (int argc, char **argv) {
     g_message("Flushing final messages..");
     rd_kafka_flush(producer, 10 * 1000);
 
-    if (rd_kafka_outq_len(producer) > 0) {
+    if (rd_kafka_outq_len(producer) > 0)
+    {
         g_error("%d message(s) were not delivered", rd_kafka_outq_len(producer));
     }
 

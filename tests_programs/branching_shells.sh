@@ -1,6 +1,6 @@
 #!/bin/bash
 
-NUM_OF_LEVELS=5
+NUM_OF_LEVELS=7
 BRANCHING_DEGREE=2
 
 recProcedure(){
@@ -10,7 +10,7 @@ recProcedure(){
      	then
      	i=$1
      	((i++))
-     	bash -c "source script.sh; ls; ps; recProcedure $i; exit"
+     	bash -c "source branching_shells.sh; ls; ps; recProcedure $i; exit"
      	fi
      done
 }

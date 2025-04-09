@@ -195,3 +195,5 @@ cd flink/flink-2.0-preview1
 ./bin/flink run examples/streaming/WordCount.jar --input "/home/vadim/stream_data_analysis/flink/input.txt" --output "/home/vadim/stream_data_analysis/flink/output.txt"
 
 ./flink run /home/vadim/stream_data_analysis/flink/untitled/trying2/build/libs/trying2-0.1-SNAPSHOT-all.jar
+
+scp "file.cpp" -i key1 admin@158.160.116.40:/home/admin

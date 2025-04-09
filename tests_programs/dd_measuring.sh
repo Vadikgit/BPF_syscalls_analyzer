@@ -2,16 +2,17 @@
 DD_INPUT_FILE="/dev/sda3"
 DD_OUTPUT_FILE="/dev/null"
 
-PATH_TO_ANALYZER_DIR="../bpf_process_tree_builder_saving/code/"
+PATH_TO_ANALYZER_DIR="../bpf_process_tree_builder_ringbuf/code/"
 
-NUM_OF_ITERATIONS=5
+NUM_OF_ITERATIONS=2
 #AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=6442450944
 #AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=8589934592
 AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=644245094
-MIN_BLOCK_SIZE=1024
-MAX_BLOCK_SIZE=16384
+MIN_BLOCK_SIZE=4096
+#MAX_BLOCK_SIZE=16384
+MAX_BLOCK_SIZE=4096
 #MAX_BLOCK_SIZE=67108864
-BLOCK_SIZE_MULTIPLIER=16
+BLOCK_SIZE_MULTIPLIER=4
 #MAX_BLOCK_SIZE=2048
 
 declare -A AVG_REAL_TIME_FOR_BLOCKS_WITH_NOLOAD
@@ -22,7 +23,7 @@ declare -A AVG_REAL_TIME_FOR_BLOCKS_WITH_LOAD
 declare -A AVG_USER_TIME_FOR_BLOCKS_WITH_LOAD
 declare -A AVG_KERNEL_TIME_FOR_BLOCKS_WITH_LOAD
 
-for ((number_of_run=0;number_of_run<=1;number_of_run++))
+for ((number_of_run=1;number_of_run<=1;number_of_run++))
 do
 	if [ $number_of_run -eq 0 ]
 	then
@@ -83,6 +84,7 @@ do
 	then
 		cd $PATH_TO_ANALYZER_DIR
 		./analyzer -stop
+		#rm extractorlog.txt
 		cd $CURRENT_PWD
 	fi
 done

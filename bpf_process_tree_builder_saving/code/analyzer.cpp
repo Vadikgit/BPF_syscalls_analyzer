@@ -44,32 +44,6 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
   return vfprintf(stderr, format, args);
 }
 
-void create_or_reuse_map(std::string pathName, bpf_map_type mapType, uint32_t keySize, uint32_t valSize,
-                         uint64_t maxEntries, struct bpf_map *mapPointerInScel, int &mapFd)
-{
-
-  mapFd = bpf_obj_get(pathName.c_str());
-
-  bool notFoundMap = (mapFd < 0);
-
-  std::cout << "\n----------------------------------\n"
-            << pathName
-            << " file descriptor: " << mapFd << "\n----------------------------------\n";
-
-  if (notFoundMap)
-  {
-    std::cout << "\n----------------------------------\n\nPinned map " << pathName
-              << " NOT FOUND\n\nCreating new ...\n\n----------------------------------\n";
-
-    mapFd = bpf_map_create(mapType, pathName.substr(pathName.rfind('/') + 1).c_str(), keySize, valSize, maxEntries, 0);
-  }
-
-  bpf_map__reuse_fd(mapPointerInScel, mapFd);
-
-  if (notFoundMap)
-    bpf_map__pin(mapPointerInScel, pathName.c_str());
-}
-
 void attach_handlers_to_syscalls_and_pin_links(struct analyzer_bpf *skel)
 {
   // Reading data about relevant syscalls from file  --------------
@@ -187,11 +161,6 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
     printf("ContinExtrFlag_map_id: %d\n", ContinExtrFlag_map_id);
     printf("\n----------------------------------\n");
 
-    // create_or_reuse_map(SeqNumsPathName, BPF_MAP_TYPE_ARRAY, sizeof(uint32_t), sizeof(uint64_t),
-    //                         3, skel->maps.SeqNums, SeqNums_map_fd); // Sequence Number
-    // create_or_reuse_map(ContinExtrFlagPathName, BPF_MAP_TYPE_ARRAY, sizeof(uint32_t), sizeof(uint8_t),
-    //                     1, skel->maps.ContinExtrFlag, ContinExtrFlag_map_fd); // Continue work of extractor
-
     std::cout << "\n----------------------------------\n\nAttached to maps\n\n----------------------------------\n";
 
     // Start map_extractor
@@ -200,7 +169,7 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
     bpf_map_update_elem(ContinExtrFlag_map_fd, &ContinExtr_key, &ContinExtr_val, 0);
 
     std::string map_extractor_command = std::string("./map_extractor ") + std::to_string(BaseTableMap_map_id) + " " + std::to_string(SeqNums_map_id) + " " + std::to_string(ContinExtrFlag_map_id) + std::string(" > extractorlog.txt 2>&1 &");
-    std::system(map_extractor_command.c_str());
+    // std::system(map_extractor_command.c_str());
 
     // Fill in max_entries_BaseTableMap_c SeqNums[2]
     uint32_t seqnum2 = 2;
@@ -255,8 +224,6 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
     uint32_t ContinExtr_key = 0;
     uint8_t ContinExtr_val = 0;
     bpf_map_update_elem(ContinExtrFlag_map_fd, &ContinExtr_key, &ContinExtr_val, 0);
-
-    // std::system((std::string("rm /sys/fs/bpf/") + ContinExtrFlagPathName.substr(ContinExtrFlagPathName.rfind('/') + 1)).c_str());
 
     // Unpin tracepoints handlers
     delete__handlers_and_links(skel);

@@ -59,9 +59,6 @@ uint64_t base_table_local_number = 0;
 uint32_t key = 0;
 uint64_t nanosecs = 0;
 
-unsigned long long dev;
-unsigned long long ino;
-
 uint64_t to_track_value = 0;
 
 // bool enable_printk = true;
@@ -248,47 +245,8 @@ int common_handle_exit(struct sys_exit_args *ctx)
 SEC("tp/syscalls/sys_enter_clone")
 int handle_tp_enter(struct sys_enter_args *ctx)
 {
-  uint64_t cur_pid_tgid = bpf_get_current_pid_tgid();
-
   if (is_relevant_enter())
   {
-    /*if ((int)(ctx->__syscall_nr) == 1)
-    {
-      uint64_t count = ctx->count;
-
-      static char buf[10] = {};
-
-      bpf_printk("%d symbols", count);
-      if (count < 10 && ((char *)(ctx->buf) != NULL))
-      {
-        char c = 0;
-
-        for (int i = 0; i < count; i++)
-        {
-          if ((char *)(ctx->buf) != NULL)
-          {
-            char *cp = (char *)(ctx->buf);
-
-            // buf[i] = *(((char *)(ctx->buf)) + i);
-            c = *cp;
-            buf[i] = c;
-          }
-        }
-        buf[count] = 0;
-
-        bpf_printk("data: %s", &buf);
-      }
-      // char *cp = (char *)(ctx->buf);
-
-      // if (cp != NULL)
-      //{
-      //  bpf_printk("<%s>", cp);
-      //  bpf_core_read(&c, 1, cp);
-      //}
-
-      //      bpf_printk("<%s>", &c);
-    }*/
-
     common_handle_enter(ctx);
   }
   return 0;
