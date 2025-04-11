@@ -4,13 +4,14 @@ DD_OUTPUT_FILE="/dev/null"
 
 PATH_TO_ANALYZER_DIR="../bpf_process_tree_builder_ringbuf/code/"
 
-NUM_OF_ITERATIONS=2
+NUM_OF_ITERATIONS=5
 #AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=6442450944
 #AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=8589934592
 AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=644245094
-MIN_BLOCK_SIZE=4096
+#AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=16384
+MIN_BLOCK_SIZE=64
 #MAX_BLOCK_SIZE=16384
-MAX_BLOCK_SIZE=4096
+MAX_BLOCK_SIZE=64
 #MAX_BLOCK_SIZE=67108864
 BLOCK_SIZE_MULTIPLIER=4
 #MAX_BLOCK_SIZE=2048
@@ -23,7 +24,7 @@ declare -A AVG_REAL_TIME_FOR_BLOCKS_WITH_LOAD
 declare -A AVG_USER_TIME_FOR_BLOCKS_WITH_LOAD
 declare -A AVG_KERNEL_TIME_FOR_BLOCKS_WITH_LOAD
 
-for ((number_of_run=1;number_of_run<=1;number_of_run++))
+for ((number_of_run=0;number_of_run<=1;number_of_run++))
 do
 	if [ $number_of_run -eq 0 ]
 	then
@@ -39,8 +40,9 @@ do
 		CURRENT_PWD=`pwd`
 		
 		echo "0" > starting_finished.txt
+		echo "0" > runs_finished.txt
 
-		gnome-terminal --tab -x bash -c " cd $PATH_TO_ANALYZER_DIR; ./analyzer -start -pid $CURRENT_BASH_PID; cd $CURRENT_PWD; echo \"1\" > starting_finished.txt; exit; "
+		gnome-terminal --tab -x bash -c " cd $PATH_TO_ANALYZER_DIR; ./analyzer -start -pid $CURRENT_BASH_PID; cd $CURRENT_PWD; echo \"1\" > starting_finished.txt; while [ \`cat runs_finished.txt\` = \"0\" ]; do sleep 1; echo ...; done; rm runs_finished.txt; cd $PATH_TO_ANALYZER_DIR; ls; ./analyzer -stop; sleep 5; "
 		
 		while [ `cat starting_finished.txt` = "0" ]
 		do
@@ -82,10 +84,8 @@ do
 	
 	if [ $number_of_run -eq 1 ]
 	then
-		cd $PATH_TO_ANALYZER_DIR
-		./analyzer -stop
+		echo "1" > runs_finished.txt
 		#rm extractorlog.txt
-		cd $CURRENT_PWD
 	fi
 done
 

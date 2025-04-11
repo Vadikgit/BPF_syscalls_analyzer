@@ -14,10 +14,11 @@
 #include <iomanip>
 
 #define PERF_TEST_MODE
-#define PRODUCTION_MODE
+// #define PRODUCTION_MODE
 
 uint64_t idsCounter = 0;
 uint64_t lastGotId = 0;
+uint64_t pollIterationsCounter = 0;
 
 std::string ContinExtrFlagPathName = "/sys/fs/bpf/ContinExtrFlag";
 
@@ -89,8 +90,6 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	int iterctr = 0;
-
 	struct ring_buffer *rb = NULL;
 
 	rb = ring_buffer__new(BaseTableBuf_map_fd, handle_event, NULL, NULL);
@@ -100,42 +99,49 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Failed to create ring buffer\n");
 	}
 
-	while (continue_flag == true)
+	try
 	{
+
+		while (continue_flag == true)
+		{
 // std::cout << "\tExtractor iteration Counter: " << iterctr << " ---------------------------------- | ";
 // printTimestamp();
 // std::cout << '\n'
 #ifdef PRODUCTION_MODE
-		std::cout << "iteration " << iterctr << " ["
-				  << std::endl;
+			std::cout << "iteration " << iterctr << " ["
+					  << std::endl;
 #endif
-		err = ring_buffer__poll(rb, 5000);
-		/* Ctrl-C will cause -EINTR */
-		if (err == -EINTR)
-		{
-			err = 0;
-			break;
-		}
-		if (err < 0)
-		{
-			printf("Error polling ring buffer: %d\n", err);
-			break;
-		}
-		// std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-		bpf_map_lookup_elem(ContinExtrFlag_map_fd, &extrcontkey, &continue_flag);
-		iterctr++;
+			err = ring_buffer__poll(rb, 100);
+
+			if (err < 0)
+			{
+				printf("Error polling ring buffer: %d\n", err);
+				break;
+			}
+			// std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+			bpf_map_lookup_elem(ContinExtrFlag_map_fd, &extrcontkey, &continue_flag);
+			pollIterationsCounter++;
 
 #ifdef PRODUCTION_MODE
-		std::cout << "\n]"
-				  << std::endl;
+			std::cout << "\n]"
+					  << std::endl;
 #endif
+		}
+
+		ring_buffer__free(rb);
 	}
 
-	ring_buffer__free(rb);
+	catch (const std::exception &e)
+	{
+		std::cerr << e.what() << '\n';
+	}
 
 #ifdef PERF_TEST_MODE
 	std::cout << "\n\nIDs counter: " << idsCounter << std::endl;
-	std::cout << "\n\nLast got ID: " << lastGotId << std::endl;
+	std::cout << "Last got ID: " << lastGotId << std::endl;
+	std::cout << "(lastGotId * (lastGotId + 1) / 2 = " << (lastGotId * (lastGotId + 1)) / 2 << std::endl;
+	std::cout << "Poll iterations counter: " << pollIterationsCounter << "; syscalls per iteration: " << double(lastGotId) / pollIterationsCounter << std::endl;
+
 #endif
 
 	// std::system(std::string("rm extractorlog.txt").c_str());

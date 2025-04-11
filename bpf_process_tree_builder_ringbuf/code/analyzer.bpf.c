@@ -229,11 +229,18 @@ int common_handle_exit(struct sys_exit_args *ctx)
       handled->exit_time = bpf_ktime_get_tai_ns();
       handled->returned_value = ctx->ret;
       handled->is_returned = 1;
-      bpf_ringbuf_output_res = bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_ANY);
+      // bpf_ringbuf_output_res = bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_ANY);
 
+      if (global_number % 100000 == 0)
+        bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_RB_FORCE_WAKEUP);
+      else
+        bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_RB_NO_WAKEUP);
+
+      // bpf_ringbuf_output_res = 2;
       if (bpf_ringbuf_output_res != 0 && shit == false)
       {
-        bpf_printk("NON ZERO result of \"bpf_ringbuf_output\": res \"%d\", glob_id %d;\n", bpf_ringbuf_output_res, handled->global_id);
+        uint32_t core_id = bpf_get_smp_processor_id();
+        bpf_printk("NON ZERO result of \"bpf_ringbuf_output\": res \"%d\", glob_id %d, core_id %d;\n", bpf_ringbuf_output_res, handled->global_id, core_id);
         shit = true;
       }
     }
