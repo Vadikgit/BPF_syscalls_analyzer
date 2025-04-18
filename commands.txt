@@ -196,7 +196,30 @@ cd flink/flink-2.0-preview1
 
 ./flink run /home/vadim/stream_data_analysis/flink/untitled/trying2/build/libs/trying2-0.1-SNAPSHOT-all.jar
 
-scp "file.cpp" -i key1 admin@158.160.116.40:/home/admin
+scp -i /home/vadim/Документы/prog/key1 app admin@89.169.132.125:/home/admin
+app
 
 
 clear; pstree -p | grep map_extractor
+
+docker run --rm -p 15672:15672 -p 5672:5672 rabbitmq:3.10.7-management
+
+
+g++ -g -Wall rabbit.cpp -o main -lamqpcpp -lpthread -ldl -lev
+
+
+apt install -y git-all
+apt install -y clang libelf1 libelf-dev zlib1g-dev
+apt install -y llvm
+apt install -y build-essential
+apt install -y openssl
+apt install -y libssl-dev
+apt install -y libev-dev
+
+git clone https://github.com/CopernicaMarketingSoftware/AMQP-CPP.git
+cd AMQP-CPP
+make
+make install
+cd ..
+
+export RABBITMQ_SERVER_ADDRESS=51.250.11.63

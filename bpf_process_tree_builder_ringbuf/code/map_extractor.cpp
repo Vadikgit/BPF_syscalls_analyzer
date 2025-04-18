@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2020 Facebook */
+#include <ev.h>
+#include <amqpcpp.h>
+#include <amqpcpp/libev.h>
+#include <amqpcpp/linux_tcp.h>
+#include <stdlib.h>
+
 #include <stdio.h>
 #include <iostream>
 #include <unistd.h>
@@ -10,17 +16,24 @@
 #include <bpf/bpf.h>
 #include <fstream>
 #include <vector>
+#include <string>
 #include "structs.h"
 #include <iomanip>
 
 #define PERF_TEST_MODE
-// #define PRODUCTION_MODE
+// #define LOGGING
+#define PUSHING_TO_RABBITMQ
 
 uint64_t idsCounter = 0;
 uint64_t lastGotId = 0;
 uint64_t pollIterationsCounter = 0;
 
 std::string ContinExtrFlagPathName = "/sys/fs/bpf/ContinExtrFlag";
+
+#ifdef PUSHING_TO_RABBITMQ
+AMQP::TcpChannel *channel;
+std::string nodeNameDetermineCommandResult;
+#endif
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
@@ -36,7 +49,7 @@ void printTimestamp()
 
 int handle_event(void *ctx, void *data, size_t data_sz)
 {
-#ifdef PRODUCTION_MODE
+#ifdef LOGGING
 	std::cout << "global_id: " << ((BaseTableEntry *)data)->global_id << ", data size: " << data_sz << std::endl;
 #endif
 
@@ -45,6 +58,13 @@ int handle_event(void *ctx, void *data, size_t data_sz)
 	lastGotId = ((BaseTableEntry *)data)->global_id;
 #endif
 
+#ifdef PERF_TEST_MODE
+	channel->startTransaction();
+
+	channel->publish("my-exchange", nodeNameDetermineCommandResult.c_str(), (char *)data, data_sz, 0);
+
+	channel->commitTransaction().onSuccess([]() {}).onError([](const char *message) {});
+#endif
 	return 0;
 }
 
@@ -99,15 +119,64 @@ int main(int argc, char **argv)
 		fprintf(stderr, "Failed to create ring buffer\n");
 	}
 
+#ifdef PUSHING_TO_RABBITMQ
+	// get RabbitMQ server address
+	std::string rabbitmqServerAddress;
+	const char *rabbitmqServerAddressValue = std::getenv("RABBITMQ_SERVER_ADDRESS");
+
+	if (rabbitmqServerAddressValue != nullptr)
+	{
+		std::cout << "\n<<<<<<\nDetermined RabbitMQ server address:\n\t" << rabbitmqServerAddressValue << "\n>>>>>>\n\n"
+				  << std::endl;
+		rabbitmqServerAddress = std::string(rabbitmqServerAddressValue);
+	}
+	else
+	{
+		std::cout << "RABBITMQ_SERVER_ADDRESS environment variable is not set. Exiting" << std::endl;
+		//		return 0;
+		rabbitmqServerAddress = "51.250.11.63";
+	}
+
+	// get hostname
+	char *nodeNameDetermineCommand = "hostname";
+
+	char buf[BUFSIZ];
+	FILE *ptr;
+
+	if ((ptr = popen(nodeNameDetermineCommand, "r")) != NULL)
+		while (fgets(buf, BUFSIZ, ptr) != NULL)
+			nodeNameDetermineCommandResult = nodeNameDetermineCommandResult + std::string(buf);
+
+	pclose(ptr);
+
+	std::cout << "\n<<<<<<\nDetermined node name:\n\t" << nodeNameDetermineCommandResult << "\n>>>>>>\n"
+			  << std::endl;
+
+	// access to the event loop
+	std::string rabbitmqConnString = std::string("amqp://guest:guest@") + rabbitmqServerAddress + std::string(":5672/");
+	auto *loop = EV_DEFAULT;
+
+	AMQP::LibEvHandler handler(loop);
+	AMQP::TcpConnection connection(&handler, AMQP::Address(rabbitmqConnString.c_str()));
+	channel = new AMQP::TcpChannel(&connection);
+
+	std::thread t1([=]()
+				   { ev_run(loop, 0); });
+
+	channel->declareExchange("my-exchange", AMQP::fanout);
+	channel->declareQueue("my-queue");
+	channel->bindQueue("my-exchange", "my-queue", "my-routing-key");
+
+#endif
+
 	try
 	{
-
 		while (continue_flag == true)
 		{
 // std::cout << "\tExtractor iteration Counter: " << iterctr << " ---------------------------------- | ";
 // printTimestamp();
 // std::cout << '\n'
-#ifdef PRODUCTION_MODE
+#ifdef LOGGING
 			std::cout << "iteration " << iterctr << " ["
 					  << std::endl;
 #endif
@@ -122,7 +191,7 @@ int main(int argc, char **argv)
 			bpf_map_lookup_elem(ContinExtrFlag_map_fd, &extrcontkey, &continue_flag);
 			pollIterationsCounter++;
 
-#ifdef PRODUCTION_MODE
+#ifdef LOGGING
 			std::cout << "\n]"
 					  << std::endl;
 #endif
@@ -141,11 +210,15 @@ int main(int argc, char **argv)
 	std::cout << "Last got ID: " << lastGotId << std::endl;
 	std::cout << "(lastGotId * (lastGotId + 1) / 2 = " << (lastGotId * (lastGotId + 1)) / 2 << std::endl;
 	std::cout << "Poll iterations counter: " << pollIterationsCounter << "; syscalls per iteration: " << double(lastGotId) / pollIterationsCounter << std::endl;
-
 #endif
 
 	// std::system(std::string("rm extractorlog.txt").c_str());
 	std::system((std::string("rm /sys/fs/bpf/") + ContinExtrFlagPathName.substr(ContinExtrFlagPathName.rfind('/') + 1)).c_str());
+
+#ifdef PUSHING_TO_RABBITMQ
+	t1.detach();
+	delete channel;
+#endif
 
 	return 0;
 }

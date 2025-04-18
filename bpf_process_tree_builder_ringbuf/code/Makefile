@@ -10,6 +10,8 @@ BPFTOOL ?= $(abspath bpftool/bootstrap/bpftool)
 KAFKA_CPPFLAGS=-Wall $(shell pkg-config --cflags glib-2.0 rdkafka)
 KAFKA_LDLIBS=$(shell pkg-config --libs glib-2.0 rdkafka)
 
+RABBITMQ_LDLIBS=-lamqpcpp -lpthread -ldl -lev
+
 ARCH ?= $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/' | sed 's/ppc64le/powerpc/' \
 			 | sed 's/mips.*/mips/' | sed 's/arm.*/arm/' | sed 's/riscv64/riscv/')
 VMLINUX := ../vmlinux/$(ARCH)/vmlinux.h
@@ -74,7 +76,7 @@ analyzer: $(OBJECTS)/analyzer.o $(LIBBPF_OBJ) map_extractor | $(OBJECTS)
 
 map_extractor: map_extractor.cpp $(LIBBPF_OBJ)
 	$(call msg,BINARY,$@)
-	@$(CXX) $(CXXFLAGS) $(KAFKA_CPPFLAGS) $(INCLUDES) $^ $(ALL_LDFLAGS) -lelf -lz $(KAFKA_LDLIBS) -o $@
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $^ $(ALL_LDFLAGS) -lelf -lz -o $@ $(RABBITMQ_LDLIBS)
 
 # CTools
 $(OBJECTS)/_ctool_%.o: %.c *.h | $(OBJECTS)
