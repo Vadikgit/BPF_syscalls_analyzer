@@ -231,7 +231,7 @@ int common_handle_exit(struct sys_exit_args *ctx)
       handled->is_returned = 1;
       // bpf_ringbuf_output_res = bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_ANY);
 
-      if (handled->global_id % 100000 == 0)
+      if (handled->global_id % 1000 == 0)
         bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_RB_FORCE_WAKEUP);
       else
         bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_RB_NO_WAKEUP);
