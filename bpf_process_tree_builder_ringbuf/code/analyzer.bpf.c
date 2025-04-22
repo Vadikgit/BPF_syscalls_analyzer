@@ -174,6 +174,7 @@ int common_handle_enter(struct sys_enter_args *ctx)
 {
   uint64_t cur_uid_gid = bpf_get_current_uid_gid();
   uint64_t cur_pid_tgid = bpf_get_current_pid_tgid();
+  uint32_t core_id = bpf_get_smp_processor_id();
 
   struct BaseTableEntry handled = {};
   handled.global_id = global_number;
@@ -183,27 +184,12 @@ int common_handle_enter(struct sys_enter_args *ctx)
   handled.process_owner_user_ID = cur_uid_gid;
   handled.exit_time = 0;
   handled.returned_value = 0;
+  handled.core_id = core_id;
   handled.is_returned = 0;
 
   bpf_map_update_elem(&PIDActScl, &(handled.process_ID), &(handled), BPF_ANY);
 
   global_number++;
-  // base_table_local_number = global_number % max_entries_BaseTableMap_c;
-
-  // uint32_t seq_num_key = 0;
-  // bpf_map_update_elem(&SeqNums, &seq_num_key, &global_number, BPF_ANY);
-
-  // key = base_table_local_number;
-
-  /*char buf[] = "=========================SYSCALL_INFO=========================\0";
-
-  if (global_number % 50 == 0)
-    bpf_ringbuf_output(&BaseTableBuf, &global_number, sizeof(global_number), BPF_RB_FORCE_WAKEUP);
-  else
-    bpf_ringbuf_output(&BaseTableBuf, &global_number, sizeof(global_number), BPF_RB_NO_WAKEUP);
-
-  global_number++;
-  */
 
   return 0;
 }
@@ -211,6 +197,7 @@ int common_handle_enter(struct sys_enter_args *ctx)
 int common_handle_exit(struct sys_exit_args *ctx)
 {
   uint64_t cur_pid_tgid = bpf_get_current_pid_tgid();
+  uint32_t core_id = bpf_get_smp_processor_id();
 
   pid_t cur_pid = ((cur_pid_tgid << 32) >> 32);
 
@@ -229,19 +216,22 @@ int common_handle_exit(struct sys_exit_args *ctx)
       handled->exit_time = bpf_ktime_get_tai_ns();
       handled->returned_value = ctx->ret;
       handled->is_returned = 1;
-      // bpf_ringbuf_output_res = bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_ANY);
+      bpf_ringbuf_output_res = bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_ANY);
 
-      if (handled->global_id % 1000 == 0)
-        bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_RB_FORCE_WAKEUP);
-      else
-        bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_RB_NO_WAKEUP);
+      // if (handled->global_id % 1000 == 0)
+      //   bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_RB_FORCE_WAKEUP);
+      // else
+      //   bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_RB_NO_WAKEUP);
 
-      // bpf_ringbuf_output_res = 2;
       if (bpf_ringbuf_output_res != 0 && shit == false)
       {
-        uint32_t core_id = bpf_get_smp_processor_id();
-        bpf_printk("NON ZERO result of \"bpf_ringbuf_output\": res \"%d\", glob_id %d, core_id %d;\n", bpf_ringbuf_output_res, handled->global_id, core_id);
+        bpf_printk("NON ZERO result of \"bpf_ringbuf_output\": res \"%d\", glob_id %d;\n", bpf_ringbuf_output_res, handled->global_id);
         shit = true;
+      }
+
+      if (core_id != handled->core_id)
+      {
+        bpf_printk("CORE IDS IN ENTERING AND IN EXIT ARE DIFFERENT: enter \"%d\", exit %d;\n", handled->core_id, core_id);
       }
     }
 
