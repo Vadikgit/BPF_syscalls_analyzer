@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2020 Facebook */
+#include <ev.h>
+#include <amqpcpp.h>
+#include <amqpcpp/libev.h>
+#include <amqpcpp/linux_tcp.h>
+#include <stdlib.h>
+
 #include <stdio.h>
 #include <iostream>
 #include <unistd.h>
@@ -10,113 +16,229 @@
 #include <bpf/bpf.h>
 #include <fstream>
 #include <vector>
+#include <string>
 #include "structs.h"
 #include <iomanip>
 
+#define PERF_TEST_MODE
+// #define LOGGING
+#define PUSHING_TO_RABBITMQ
+#define RABBITMQ_BUFFER_SIZE 67108864
+
+uint64_t idsCounter = 0;
+uint64_t lastGotId = 0;
+uint64_t pollIterationsCounter = 0;
+uint64_t successfullPollIterationsCounter = 0;
+bool pollSuccessFlag = false;
+
+std::string ContinExtrFlagPathName = "/sys/fs/bpf/ContinExtrFlag";
+
+#ifdef PUSHING_TO_RABBITMQ
+std::string nodeNameDetermineCommandResult;
+uint8_t rabbitMqBuffer[RABBITMQ_BUFFER_SIZE];
+size_t rabbitMqBufferFilledPartSize = 0;
+#endif
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va_list args)
 {
-  return vfprintf(stderr, format, args);
+	return vfprintf(stderr, format, args);
 }
 
-void printTimestamp(){
+void printTimestamp()
+{
 	std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
 	std::time_t now_c = std::chrono::system_clock::to_time_t(now);
 	std::cout << std::put_time(std::localtime(&now_c), "%Y-%m-%d %X");
 }
 
+int handle_event(void *ctx, void *data, size_t data_sz)
+{
+#ifdef LOGGING
+	std::cout << "global_id: " << ((BaseTableEntry *)data)->global_id << ", data size: " << data_sz << std::endl;
+#endif
+
+#ifdef PERF_TEST_MODE
+	idsCounter += ((BaseTableEntry *)data)->global_id;
+	lastGotId = ((BaseTableEntry *)data)->global_id;
+
+	if (pollSuccessFlag == false)
+	{
+		successfullPollIterationsCounter++;
+		pollSuccessFlag = true;
+	}
+
+#endif
+
+#ifdef PERF_TEST_MODE
+	memcpy(&(rabbitMqBuffer[rabbitMqBufferFilledPartSize]), data, data_sz);
+	rabbitMqBufferFilledPartSize += data_sz;
+#endif
+	return 0;
+}
+
+uint32_t extrcontkey = 0;
+bool continue_flag = true;
+
 int main(int argc, char **argv)
 {
 	int err;
+	int BaseTableBuf_map_id = -1;
+	int ContinExtrFlag_map_id = -1;
 
-		int BaseTableMap_map_fd = bpf_obj_get("/sys/fs/bpf/BaseTableMap");
-        int SeqNums_map_fd = bpf_obj_get("/sys/fs/bpf/SeqNums");
-        int ContinExtrFlag_map_fd = bpf_obj_get("/sys/fs/bpf/ContinExtrFlag");
+	if (argc < 3)
+	{
+		std::cout << "\n----------------------------------\n"
+				  << "\nMap(s) ids not specified\n"
+				  << "\nExiting\n"
+				  << "\n----------------------------------\n";
+		return 0;
+	}
 
-        bool not_found_map = ((BaseTableMap_map_fd < 0) || (SeqNums_map_fd < 0) || (ContinExtrFlag_map_fd < 0));
-        std::cout << "\n----------------------------------\n" << "BaseTableMap_map_fd: " << BaseTableMap_map_fd;
-        std::cout << "\nSeqNums_map_fd: " << SeqNums_map_fd;
-        std::cout << "\nContinExtrFlag_map_fd: " << ContinExtrFlag_map_fd << "\n---------------------------------- | ";
+	BaseTableBuf_map_id = std::stoll(argv[1]);
+	ContinExtrFlag_map_id = std::stoll(argv[2]);
 
-        printTimestamp();
-        std::cout << '\n';
+	int BaseTableBuf_map_fd = bpf_map_get_fd_by_id(BaseTableBuf_map_id);
+	int ContinExtrFlag_map_fd = bpf_map_get_fd_by_id(ContinExtrFlag_map_id);
 
-        if (not_found_map) {
-          std::cout << "\n----------------------------------\n" << "\nPinned map NOT FOUND\n" << "\nExiting\n" << "\n----------------------------------\n";
-          return 0;
-        }
+	bool not_found_map = (BaseTableBuf_map_fd < 0 || ContinExtrFlag_map_fd < 0);
+	std::cout << "\n----------------------------------\n"
+			  << "BaseTableBuf_map_fd: " << BaseTableBuf_map_fd
+			  << "\nContinExtrFlag_map_fd: " << ContinExtrFlag_map_fd;
+	std::cout << "\n---------------------------------- | ";
 
-        uint64_t extract_offset = 250000;
+	printTimestamp();
+	std::cout << '\n';
 
-        int fileCtr = 0, iterctr = 0;
+	if (not_found_map)
+	{
+		std::cout << "\n----------------------------------\n"
+				  << "\nMap(s) NOT FOUND\n"
+				  << "\nExiting\n"
+				  << "\n----------------------------------\n";
+		return 0;
+	}
 
-        bool repeat_condition = true;
-        uint32_t extrcontkey = 0;
+	struct ring_buffer *rb = NULL;
 
-        while(repeat_condition)
-        {
-        	uint32_t seqnumkey = 0;
-        	uint64_t glob_num;
-        	uint64_t next_saving_num;
-        	uint64_t base_table_entries;
+	rb = ring_buffer__new(BaseTableBuf_map_fd, handle_event, NULL, NULL);
+	if (!rb)
+	{
+		err = -1;
+		fprintf(stderr, "Failed to create ring buffer\n");
+	}
 
-        	bpf_map_lookup_elem(SeqNums_map_fd, &seqnumkey, &glob_num);
+#ifdef PUSHING_TO_RABBITMQ
+	// get RabbitMQ server address
+	std::string rabbitmqServerAddress;
+	const char *rabbitmqServerAddressValue = std::getenv("RABBITMQ_SERVER_ADDRESS");
 
-        	seqnumkey = 1;
-        	bpf_map_lookup_elem(SeqNums_map_fd, &seqnumkey, &next_saving_num);
-        	seqnumkey = 2;
-        	bpf_map_lookup_elem(SeqNums_map_fd, &seqnumkey, &base_table_entries);
+	if (rabbitmqServerAddressValue != nullptr)
+	{
+		std::cout << "\n<<<<<<\nDetermined RabbitMQ server address:\n\t" << rabbitmqServerAddressValue << "\n>>>>>>\n\n"
+				  << std::endl;
+		rabbitmqServerAddress = std::string(rabbitmqServerAddressValue);
+	}
+	else
+	{
+		std::cout << "RABBITMQ_SERVER_ADDRESS environment variable is not set. Exiting" << std::endl;
+		return 0;
+	}
 
-        	std::cout << "\nEntry global number: " << glob_num << ";";
-        	std::cout << "\tNext saving global number: " << next_saving_num << ";";
-        	std::cout << "\tExtractor iteration Counter: " << iterctr << " ---------------------------------- | ";
-        	printTimestamp();
-        	std::cout << '\n';
+	// get hostname
+	char *nodeNameDetermineCommand = "hostname";
 
+	char buf[BUFSIZ];
+	FILE *ptr;
 
-        	if((glob_num - next_saving_num) >= extract_offset){
-        		std::string filename = std::string("binfiles/file") + std::to_string(fileCtr) + std::string(".bin");
-        		fileCtr++;
+	if ((ptr = popen(nodeNameDetermineCommand, "r")) != NULL)
+		while (fgets(buf, BUFSIZ, ptr) != NULL)
+			nodeNameDetermineCommandResult = nodeNameDetermineCommandResult + std::string(buf);
 
-        		std::ofstream outf(filename, std::ios::binary);
+	pclose(ptr);
 
-        		std::chrono::time_point<std::chrono::system_clock> t1, t2;
+	std::cout << "\n<<<<<<\nDetermined node name:\n\t" << nodeNameDetermineCommandResult << "\n>>>>>>\n"
+			  << std::endl;
 
-        		std::cout << "\nStart of extracting in " << filename << " ---------------------------------- | ";
-        		printTimestamp();
-        		std::cout << '\n';
+	// access to the event loop
+	std::string rabbitmqConnString = std::string("amqp://guest:guest@") + rabbitmqServerAddress + std::string(":5672/");
+	auto *loop = EV_DEFAULT;
 
-        		t1 = std::chrono::system_clock::now();
+	AMQP::LibEvHandler handler(loop);
+	AMQP::TcpConnection connection(&handler, AMQP::Address(rabbitmqConnString.c_str()));
+	AMQP::TcpChannel channel(&connection);
 
-        		std::vector<BaseTableEntry> arr;
-        		arr.resize(extract_offset);
+	std::thread t1([=]()
+				   { ev_run(loop, 0); });
 
-        		for (uint32_t i = next_saving_num; i < (extract_offset + next_saving_num); i++){
-        			uint32_t arr_key = (i % base_table_entries);
-        			bpf_map_lookup_elem(BaseTableMap_map_fd, &arr_key, &arr[i - next_saving_num]);
-        		}
+	channel.declareExchange("exchange1", AMQP::fanout);
+	channel.declareQueue("queue1");
+	channel.bindQueue("exchange1", "queue1", "routing-key1");
 
-        		outf.write((char*)&arr[0], sizeof(arr[0]) * extract_offset);
+#endif
 
-        		seqnumkey = 1;
-        		next_saving_num += extract_offset;
-        		bpf_map_update_elem(SeqNums_map_fd, &seqnumkey, &next_saving_num, 0);
+	try
+	{
+		while (continue_flag == true)
+		{
+// std::cout << "\tExtractor iteration Counter: " << iterctr << " ---------------------------------- | ";
+// printTimestamp();
+// std::cout << '\n'
+#ifdef LOGGING
+			std::cout << "iteration " << iterctr << " ["
+					  << std::endl;
+#endif
 
-        		t2 = std::chrono::system_clock::now();
+			pollSuccessFlag = false;
 
-        		std::cout << "\nEnd of extracting in " << filename << "\t" << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count() << " ms, "
-        		          << sizeof(BaseTableEntry) * extract_offset << " bytes, "
-        		          << double(std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()) / (sizeof(BaseTableEntry) * extract_offset) << " ms/byte ---------------------------------- | ";
-        		printTimestamp();
-        		std::cout << '\n';
-        	}
+#ifdef PUSHING_TO_RABBITMQ
+			rabbitMqBufferFilledPartSize = 0;
+#endif
+			err = ring_buffer__poll(rb, 100);
 
-        	std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+			if (err < 0)
+			{
+				printf("Error polling ring buffer: %d\n", err);
+				break;
+			}
 
-        	bpf_map_lookup_elem(ContinExtrFlag_map_fd, &extrcontkey, &repeat_condition);
+#ifdef PUSHING_TO_RABBITMQ
+			// channel.startTransaction();
+			if (rabbitMqBufferFilledPartSize != 0)
+				channel.publish("exchange1", nodeNameDetermineCommandResult.c_str(), (char *)rabbitMqBuffer, rabbitMqBufferFilledPartSize, 0);
+// channel.commitTransaction().onSuccess([]() {}).onError([](const char *message) {});
+#endif
 
-        	iterctr++;
-        }
+			bpf_map_lookup_elem(ContinExtrFlag_map_fd, &extrcontkey, &continue_flag);
+			pollIterationsCounter++;
 
-        return 0;
+#ifdef LOGGING
+			std::cout << "\n]"
+					  << std::endl;
+#endif
+		}
+
+		ring_buffer__free(rb);
+	}
+
+	catch (const std::exception &e)
+	{
+		std::cerr << e.what() << '\n';
+	}
+
+#ifdef PERF_TEST_MODE
+	std::cout << "\n\nIDs counter: " << idsCounter << std::endl;
+	std::cout << "Last got ID: " << lastGotId << std::endl;
+	std::cout << "(lastGotId * (lastGotId + 1) / 2 = " << (lastGotId * (lastGotId + 1)) / 2 << std::endl;
+	std::cout << "Poll iterations counter: " << pollIterationsCounter << "; syscalls per iteration: " << double(lastGotId) / pollIterationsCounter << std::endl;
+	std::cout << "Successfull poll iterations counter: " << successfullPollIterationsCounter << "; syscalls per iteration: " << double(lastGotId) / successfullPollIterationsCounter << std::endl;
+#endif
+
+	// std::system(std::string("rm extractorlog.txt").c_str());
+	std::system((std::string("rm /sys/fs/bpf/") + ContinExtrFlagPathName.substr(ContinExtrFlagPathName.rfind('/') + 1)).c_str());
+
+#ifdef PUSHING_TO_RABBITMQ
+	t1.detach();
+#endif
+
+	return 0;
 }

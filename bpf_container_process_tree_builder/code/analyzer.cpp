@@ -20,6 +20,10 @@
 #include <sys/stat.h>
 //
 int err;
+int BaseTableBuf_map_fd = -1;
+int ContinExtrFlag_map_fd = -1;
+
+std::string ContinExtrFlagPathName = "/sys/fs/bpf/ContinExtrFlag";
 
 std::string EnterHandlerPathName = "/sys/fs/bpf/handle_tp_enter";
 std::string ExitHandlerPathName = "/sys/fs/bpf/handle_tp_exit";
@@ -118,6 +122,43 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
       return;
     }
 
+    // Preparing BPF maps
+    BaseTableBuf_map_fd = bpf_map__fd(skel->maps.BaseTableBuf);
+    ContinExtrFlag_map_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, ContinExtrFlagPathName.substr(ContinExtrFlagPathName.rfind('/') + 1).c_str(), sizeof(uint32_t), sizeof(uint8_t), 1, 0);
+    bpf_obj_pin(ContinExtrFlag_map_fd, ContinExtrFlagPathName.c_str());
+
+    printf("\n----------------------------------\n");
+    printf("BaseTableBuf_map_fd: %d\n", BaseTableBuf_map_fd);
+    printf("ContinExtrFlag_map_fd: %d\n", ContinExtrFlag_map_fd);
+    printf("----------------------------------\n");
+
+    struct bpf_map_info mp_info = {};
+    uint32_t info_len = sizeof(mp_info);
+
+    int BaseTableBuf_map_id = -1;
+    int ContinExtrFlag_map_id = -1;
+
+    bpf_map_get_info_by_fd(BaseTableBuf_map_fd, &mp_info, &info_len);
+    BaseTableBuf_map_id = mp_info.id;
+
+    bpf_map_get_info_by_fd(ContinExtrFlag_map_fd, &mp_info, &info_len);
+    ContinExtrFlag_map_id = mp_info.id;
+
+    printf("\n----------------INFO------------------\n");
+    printf("BaseTableBuf_map_id: %d\n", BaseTableBuf_map_id);
+    printf("ContinExtrFlag_map_id: %d\n", ContinExtrFlag_map_id);
+    printf("\n----------------------------------\n");
+
+    // Start map_extractor
+    uint32_t ContinExtr_key = 0;
+    uint8_t ContinExtr_val = 1;
+    bpf_map_update_elem(ContinExtrFlag_map_fd, &ContinExtr_key, &ContinExtr_val, 0);
+
+    std::string map_extractor_command = std::string("./map_extractor ") + std::to_string(BaseTableBuf_map_id) + " " + std::to_string(ContinExtrFlag_map_id) + std::string(" > extractorlog.txt 2>&1 &");
+    std::system(map_extractor_command.c_str());
+
+    std::cout << "\n----------------------------------\n\nAttached to maps\n\n----------------------------------\n";
+
     // Attach tracepoints handler
     err = analyzer_bpf__attach(skel);
     if (err)
@@ -128,7 +169,7 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
 
     attach_handlers_to_syscalls_and_pin_links(skel);
     std::cout << "\n----------------------------------\n\nHandlers attached to tracepoints\n\n----------------------------------\n";
-    //
+
     int to_trace_value_map_fd = -1;
     bpf_map__reuse_fd(skel->maps.to_track_pid, to_trace_value_map_fd);
 
@@ -143,9 +184,6 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
       try
       {
         uint64_t PD_to_track = std::stoll(arguments[arg_specify_root_process_to_catch_syscalls][0]);
-
-        //        skel->bss->to_track_value = PD_to_track;
-
         std::cout << "\n----------------------------------\n\nTracking PID: " << PD_to_track
                   << "\n\n----------------------------------\n";
       }
@@ -161,6 +199,15 @@ void process_arguments(int argc, char **argv, struct analyzer_bpf *skel)
   if (arguments.find(arg_stop_analyzer) != arguments.end())
   { // analyzer stoped
 
+    ContinExtrFlag_map_fd = bpf_obj_get(ContinExtrFlagPathName.c_str());
+
+    printf("\n----------------------------------\n");
+    printf("\nContinExtrFlag_map_fd: %d\n", ContinExtrFlag_map_fd);
+    printf("\n----------------------------------\n");
+    uint32_t ContinExtr_key = 0;
+    uint8_t ContinExtr_val = 0;
+    bpf_map_update_elem(ContinExtrFlag_map_fd, &ContinExtr_key, &ContinExtr_val, 0);
+
     // Unpin tracepoints handlers
     delete__handlers_and_links(skel);
     std::cout << "\n----------------------------------\n\nHandlers unpinned from BPF filesystem\n\n----------------------------------\n";
@@ -175,20 +222,6 @@ int main(int argc, char **argv)
   libbpf_set_print(libbpf_print_fn);
 
   skel = analyzer_bpf__open();
-
-  //
-  struct stat sb;
-  if (stat("/proc/self/ns/pid", &sb) == -1)
-  {
-    fprintf(stderr, "Failed to acquire namespace information");
-    return 1;
-  }
-
-  skel->bss->dev = sb.st_dev;
-  skel->bss->ino = sb.st_ino;
-
-  std::cout << "\n STAT: " << sb.st_dev << ' ' << sb.st_ino;
-  //
 
   if (!skel)
   {

@@ -1,7 +1,8 @@
 #ifndef BASE_TABLE_ENTRY
 #define BASE_TABLE_ENTRY
 
-struct BaseTableEntry {
+struct BaseTableEntry
+{
   uint64_t global_id;
   uint64_t syscall_number;
   uint64_t enter_time;
@@ -9,6 +10,7 @@ struct BaseTableEntry {
   uint64_t process_owner_user_ID;
   uint64_t exit_time;
   uint64_t returned_value;
+  uint32_t core_id;
   uint64_t is_returned;
 };
 
@@ -17,11 +19,13 @@ struct BaseTableEntry {
   char proc_name[32];
 };*/
 
-struct ProgNameType {
+struct ProgNameType
+{
   char proc_name[32];
 };
 
-struct ProgSyscallsListType {
+struct ProgSyscallsListType
+{
   char is_syscall_typical[75]; // 8 bits * 75  = 600 bits
 };
 

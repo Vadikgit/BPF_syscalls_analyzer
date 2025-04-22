@@ -57,7 +57,6 @@ uint64_t val = 0;
 uint64_t global_number = 0;
 // uint64_t base_table_local_number = 0;
 // uint32_t key = 0;
-uint64_t nanosecs = 0;
 
 uint64_t to_track_value = 0;
 
@@ -68,14 +67,6 @@ const uint64_t max_entries_BaseTableMap_c = ringbuffer_size_in_bytes / sizeof(st
 const uint64_t max_entries_PIDActGlbSclN_c = 10000;
 
 bool shit = false;
-
-/*struct
-{ // not pinned
-  __uint(type, BPF_MAP_TYPE_ARRAY);
-  __uint(max_entries, max_entries_BaseTableMap_c);
-  __type(key, uint32_t);
-  __type(value, struct BaseTableEntry);
-} BaseTableMap SEC(".maps");*/
 
 struct
 { // not pinned

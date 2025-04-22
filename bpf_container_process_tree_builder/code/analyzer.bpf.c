@@ -52,13 +52,13 @@ struct sys_exit_args
 };
 
 uint64_t val = 0;
-uint32_t key = 0;
-uint64_t nanosecs = 0;
+uint64_t global_number = 0;
 
-unsigned long long dev;
-unsigned long long ino;
+const uint64_t ringbuffer_size_in_bytes = (1UL << 26);
+const uint64_t max_entries_BaseTableMap_c = ringbuffer_size_in_bytes / sizeof(struct BaseTableEntry);
+const uint64_t max_entries_PIDActGlbSclN_c = 10000;
 
-// uint64_t to_track_value = 0;
+bool shit = false;
 
 struct
 { // not pinned
@@ -86,11 +86,25 @@ struct
 
 struct
 { // not pinned
+  __uint(type, BPF_MAP_TYPE_RINGBUF);
+  __uint(max_entries, ringbuffer_size_in_bytes);
+} BaseTableBuf SEC(".maps");
+
+struct
+{ // not pinned
   __uint(type, BPF_MAP_TYPE_ARRAY);
   __uint(max_entries, 1);
   __type(key, uint32_t);
   __type(value, pid_t);
 } to_track_pid SEC(".maps"); // [0] - root container pid, 0 -> not specified, smth -> specified
+
+struct
+{ // not pinned
+  __uint(type, BPF_MAP_TYPE_HASH);
+  __uint(max_entries, max_entries_PIDActGlbSclN_c);
+  __type(key, uint64_t);
+  __type(value, struct BaseTableEntry);
+} PIDActScl SEC(".maps");
 
 /*struct
 { // not pinned
@@ -101,51 +115,14 @@ struct
 } cleanup_completed SEC(".maps"); // [0] - bool completion of extra branches cleanup, 0 -> no, 1 -> yes*/
 uint64_t cleanup_completed = 0;
 
-bool is_relevant()
+bool is_relevant_enter()
 {
-  /*
-  struct task_struct *task = (void *)bpf_get_current_task();
-
-  pid_t rppid = BPF_CORE_READ(task, real_parent, tgid);
-
-  if (rppid != 1)
-    return false;
-
-  // struct ProgNameType containerd_shim = {"containerd-shim"};
-  struct ProgNameType containerd_shim = {"bash"};
-  //  containerd_shim.proc_name = "containerd-shim";containerd-shim(11838)
-  struct ProgNameType prog_val = {};
-
-  bpf_get_current_comm((prog_val.proc_name), 30);
-
-  for (int i = 0; i < 30; i++)
-  {
-    if (containerd_shim.proc_name[i] != prog_val.proc_name[i])
-      return false;
-  }
-
-  uint64_t cur_pid_tgid = bpf_get_current_pid_tgid();
-
-  pid_t cur_tgid = ((cur_pid_tgid << 32) >> 32);
-
-
-
-  int level = 0;
-  level = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, level);
-  //  int level2 = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, parent, pid_allocated);
-
-
-  bpf_printk("<%d> process is <%s>, it's level is <%d>\n", cur_tgid, prog_val.proc_name, level);
-  return false;
-  */
-
   struct task_struct *task = (void *)bpf_get_current_task();
   int level = 0;
   level = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, level);
 
   if (level == 0)
   {
-    // bpf_printk("Process <%d> with not actual level <%d>\n", cur_tgid, level);
     return false;
   }
 
@@ -230,74 +207,111 @@ bool is_relevant()
   }
 }
 
+bool is_relevant_exit()
+{
+  struct task_struct *task = (void *)bpf_get_current_task();
+  int level = 0;
+  level = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, level);
+
+  if (level == 0)
+  {
+    return false;
+  }
+
+  uint64_t cur_pid_tgid = bpf_get_current_pid_tgid();
+  pid_t cur_tgid = ((cur_pid_tgid << 32) >> 32);
+
+  pid_t rppid = BPF_CORE_READ(task, real_parent, tgid);
+
+  uint32_t to_track_pid_key = 0;
+  pid_t *to_track_pid_value_p = bpf_map_lookup_elem(&to_track_pid, &to_track_pid_key);
+
+  if (!to_track_pid_value_p) // should always be false
+  {
+    return false;
+  }
+
+  pid_t *ppid_p = bpf_map_lookup_elem(&TGID_parent, &cur_tgid);
+
+  if (ppid_p) // pid is tracked, info exists in all maps
+  {
+    return true;
+  }
+
+  return false;
+}
+
 int common_handle_enter(struct sys_enter_args *ctx)
 {
-  // struct task_struct *task = (void *)bpf_get_current_task();
+  uint64_t cur_uid_gid = bpf_get_current_uid_gid();
+  uint64_t cur_pid_tgid = bpf_get_current_pid_tgid();
+  uint32_t core_id = bpf_get_smp_processor_id();
 
-  // pid_t rppid = BPF_CORE_READ(task, real_parent, tgid);
+  struct BaseTableEntry handled = {};
+  handled.global_id = global_number;
+  handled.syscall_number = (uint64_t)(ctx->__syscall_nr);
+  handled.enter_time = bpf_ktime_get_tai_ns();
+  handled.process_ID = cur_pid_tgid;
+  handled.process_owner_user_ID = cur_uid_gid;
+  handled.exit_time = 0;
+  handled.returned_value = 0;
+  handled.core_id = core_id;
+  handled.is_returned = 0;
 
-  // int level = 8;
-  //  level = BPF_CORE_READ(task, thread_pid, level);
-  //  if (task){
-  // level = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, level);
-  //   int level2 = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, parent, pid_allocated);
-  // }
-  //  bpf_printk("Level is <%d>\n", level);
+  bpf_map_update_elem(&PIDActScl, &(handled.process_ID), &(handled), BPF_ANY);
+
+  global_number++;
+
   return 0;
 }
 
 int common_handle_exit(struct sys_exit_args *ctx)
 {
   uint64_t cur_pid_tgid = bpf_get_current_pid_tgid();
+  uint32_t core_id = bpf_get_smp_processor_id();
 
   pid_t cur_tgid = ((cur_pid_tgid << 32) >> 32);
 
   // struct ProgNameType * prog_val_p = bpf_map_lookup_elem(&TGID_comm, &cur_tgid);
 
-  //  if (!prog_val_p) {
   struct ProgNameType prog_val = {};
   bpf_get_current_comm((prog_val.proc_name), 30);
 
   bpf_map_update_elem(&TGID_comm, &cur_tgid, &prog_val, BPF_ANY);
 
-  //}
+  struct BaseTableEntry *handled = bpf_map_lookup_elem(&PIDActScl, &cur_pid_tgid);
 
-  if (enable_printk)
+  long bpf_ringbuf_output_res = 0;
+
+  if (handled != NULL)
   {
-    bpf_printk("In <%d, %d> process captured <%s> and returned <%d>\n",
-               ((cur_pid_tgid << 32) >> 32),
-               (cur_pid_tgid >> 32),
-               syscalls_names[ctx->__syscall_nr],
-               ctx->ret);
+    if (handled->syscall_number == ctx->__syscall_nr)
+    {
+      handled->exit_time = bpf_ktime_get_tai_ns();
+      handled->returned_value = ctx->ret;
+      handled->is_returned = 1;
+      bpf_ringbuf_output_res = bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_ANY);
+
+      // if (handled->global_id % 1000 == 0)
+      //   bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_RB_FORCE_WAKEUP);
+      // else
+      //   bpf_ringbuf_output(&BaseTableBuf, handled, sizeof(*handled), BPF_RB_NO_WAKEUP);
+
+      if (bpf_ringbuf_output_res != 0 && shit == false)
+      {
+        bpf_printk("NON ZERO result of \"bpf_ringbuf_output\": res \"%d\", glob_id %d;\n", bpf_ringbuf_output_res, handled->global_id);
+        shit = true;
+      }
+
+      if (core_id != handled->core_id)
+      {
+        bpf_printk("CORE IDS IN ENTERING AND IN EXIT ARE DIFFERENT: enter \"%d\", exit %d;\n", handled->core_id, core_id);
+      }
+    }
+
+    bpf_map_delete_elem(&PIDActScl, &cur_pid_tgid);
   }
 
-  struct bpf_pidns_info ns;
-
-  // struct task_struct *bpf_get_current_task_btf
-
-  bpf_get_ns_current_pid_tgid(dev, ino, &ns, sizeof(ns));
-
-  if (enable_printk)
-  {
-    bpf_printk("BPF triggered from PID %d, %d.\n", ns.pid, ns.tgid);
-  }
-
-  // uint32_t pid = bpf_get_current_pid_tgid();
-  struct task_struct *task = (void *)bpf_get_current_task();
-
-  pid_t rppid = BPF_CORE_READ(task, real_parent, tgid);
-
-  // int level = 8;
-  // level = BPF_CORE_READ(task, thread_pid, level);
-  // if (task){
-  // level = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, level);
-  //   int level2 = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, parent, pid_allocated);
-  // }
-
-  if (enable_printk)
-  {
-    bpf_printk("Ppid: %d.\n", rppid);
-  }
   return 0;
 }
 
@@ -307,7 +321,7 @@ int handle_tp_enter(struct sys_enter_args *ctx)
 {
   uint64_t cur_pid_tgid = bpf_get_current_pid_tgid();
 
-  if (is_relevant())
+  if (is_relevant_enter())
   {
     common_handle_enter(ctx);
   }
@@ -317,7 +331,7 @@ int handle_tp_enter(struct sys_enter_args *ctx)
 SEC("tp/syscalls/sys_exit_clone")
 int handle_tp_exit(struct sys_exit_args *ctx)
 {
-  if (is_relevant())
+  if (is_relevant_exit())
   {
     common_handle_exit(ctx);
   }
