@@ -4,8 +4,8 @@ OBJECTS := objects
 BINFILESDIR := binfiles
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
-LIBBPF_OBJ := $(abspath ./libbpf/libbpf.a)
-BPFTOOL ?= $(abspath bpftool/bootstrap/bpftool)
+LIBBPF_OBJ := $(abspath ../../libbpf/libbpf.a)
+BPFTOOL ?= $(abspath ../../bpftool/bootstrap/bpftool)
 
 KAFKA_CPPFLAGS=-Wall $(shell pkg-config --cflags glib-2.0 rdkafka)
 KAFKA_LDLIBS=$(shell pkg-config --libs glib-2.0 rdkafka)
@@ -14,9 +14,9 @@ RABBITMQ_LDLIBS=-lamqpcpp -lpthread -ldl -lev
 
 ARCH ?= $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/' | sed 's/ppc64le/powerpc/' \
 			 | sed 's/mips.*/mips/' | sed 's/arm.*/arm/' | sed 's/riscv64/riscv/')
-VMLINUX := ../vmlinux/$(ARCH)/vmlinux.h
+VMLINUX := ../../vmlinux/$(ARCH)/vmlinux.h
 
-INCLUDES := -I$(abspath .) -I$(OBJECTS) -I../../libbpf/include/uapi -I$(dir $(VMLINUX))
+INCLUDES := -I$(abspath .) -I$(OBJECTS) -I../../libbpf/include/uapi -I$(dir $(VMLINUX)) -I$(dir $(abspath ../../bpf))
 CFLAGS := -g -Wall
 ALL_LDFLAGS := $(LDFLAGS) $(EXTRA_LDFLAGS)
 
