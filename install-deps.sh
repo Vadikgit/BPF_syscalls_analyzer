@@ -12,3 +12,7 @@ cd AMQP-CPP
 make
 make install
 cd ..
+
+git clone https://github.com/Vadikgit/BPF_syscalls_analyzer.git
+cd BPF_syscalls_analyzer/bpf_container_process_tree_builder/code
+make analyzer
