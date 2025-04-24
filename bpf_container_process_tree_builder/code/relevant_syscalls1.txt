@@ -1,5 +1,5 @@
-read----------------
-write----------------
+read
+write
 open----------------
 close----------------
 stat
@@ -17,8 +17,8 @@ rt_sigreturn
 ioctl
 pread64
 pwrite64
-readv----------------
-writev----------------
+readv
+writev
 access----------------
 pipe
 select

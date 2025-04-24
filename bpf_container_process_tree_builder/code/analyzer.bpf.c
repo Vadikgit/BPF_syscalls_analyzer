@@ -299,13 +299,15 @@ int common_handle_exit(struct sys_exit_args *ctx)
 
       if (bpf_ringbuf_output_res != 0 && shit == false)
       {
-        bpf_printk("NON ZERO result of \"bpf_ringbuf_output\": res \"%d\", glob_id %d;\n", bpf_ringbuf_output_res, handled->global_id);
+        bpf_printk("NON ZERO result of \"bpf_ringbuf_output\": res %d, glob_id %d;\n", bpf_ringbuf_output_res, handled->global_id);
         shit = true;
       }
 
       if (core_id != handled->core_id)
       {
-        bpf_printk("CORE IDS IN ENTERING AND IN EXIT ARE DIFFERENT: enter \"%d\", exit %d;\n", handled->core_id, core_id);
+        // bpf_printk("CORE IDS IN ENTERING AND IN EXIT ARE DIFFERENT: enter %d, exit %d;\n", handled->core_id, core_id);
+        // bpf_printk("CORE IDS IN ENTERING AND IN EXIT ARE DIFFERENT: exit %d;\n", core_id);
+        // bpf_printk("CORE IDS IN ENTERING AND IN EXIT ARE DIFFERENT\n");
       }
     }
 
@@ -319,8 +321,6 @@ int common_handle_exit(struct sys_exit_args *ctx)
 SEC("tp/syscalls/sys_enter_clone")
 int handle_tp_enter(struct sys_enter_args *ctx)
 {
-  uint64_t cur_pid_tgid = bpf_get_current_pid_tgid();
-
   if (is_relevant_enter())
   {
     common_handle_enter(ctx);

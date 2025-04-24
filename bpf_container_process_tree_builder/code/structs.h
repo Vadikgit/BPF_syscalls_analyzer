@@ -11,7 +11,7 @@ struct BaseTableEntry
   uint64_t exit_time;
   uint64_t returned_value;
   uint32_t core_id;
-  uint64_t is_returned;
+  uint32_t is_returned;
 };
 
 /*struct PIDNameEntry {
