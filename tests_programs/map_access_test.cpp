@@ -6,8 +6,8 @@
 #include <chrono>
 #include <thread>
 #include <sys/resource.h>
-#include <../bpf_process_tree_builder_saving/code/bpf/libbpf.h>
-#include <../bpf_process_tree_builder_saving/code/bpf/bpf.h>
+#include <../bpf/libbpf.h>
+#include <../bpf/bpf.h>
 #include <fstream>
 #include <vector>
 #include <iomanip>
@@ -23,7 +23,7 @@ int TestMap3_fd = -1;
 int TestMap4_fd = -1;
 int TestMap5_fd = -1;
 int TestMap6_fd = -1;
-uint32_t NumberOfValues = 1'000'000;
+uint32_t NumberOfValues = 100'000;
 
 std::string TestMap1Name = "TestMap1";
 std::string TestMap2Name = "TestMap2";
@@ -34,6 +34,7 @@ std::string TestMap6Name = "TestMap6";
 
 int main(int argc, char **argv)
 {
+	// speed test
 	std::chrono::time_point<std::chrono::system_clock> t1, t2;
 
 	TestMap1_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, TestMap1Name.c_str(), sizeof(uint32_t), sizeof(uint32_t), NumberOfValues, 0);
@@ -175,6 +176,39 @@ int main(int argc, char **argv)
 			  << double(sizeof(uint32_t) * NumberOfValues) / (std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()) << " bytes/mcs ---------------------------------- | " << std::endl;
 
 	// std::this_thread::sleep_for(std::chrono::milliseconds(10000));
+
+	// for strace
+	/*NumberOfValues = 10;
+
+	TestMap1_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, TestMap1Name.c_str(), sizeof(uint32_t), sizeof(uint32_t), NumberOfValues, 0);
+
+	std::cout << "\n----------------------------------\n"
+			  << TestMap1Name
+			  << " file descriptor: " << TestMap1_fd << "\n----------------------------------\n";
+
+	for (uint32_t i = 0; i < NumberOfValues; i++)
+	{
+		bpf_map_update_elem(TestMap1_fd, &i, &i, 0);
+	}
+
+	///////////////////////////////////////////////////////////////////////////
+
+	TestMap2_fd = bpf_map_create(BPF_MAP_TYPE_ARRAY, TestMap2Name.c_str(), sizeof(uint32_t), sizeof(uint32_t), NumberOfValues, 0);
+
+	std::cout << "\n----------------------------------\n"
+			  << TestMap2Name
+			  << " file descriptor: " << TestMap2_fd << "\n----------------------------------\n";
+
+	std::vector<uint32_t> keys_a(NumberOfValues, 0);
+	std::vector<uint32_t> vals_a(NumberOfValues, 0);
+	for (uint32_t i = 0; i < NumberOfValues; i++)
+	{
+		keys_a[i] = i;
+		vals_a[i] = i;
+	}
+
+	bpf_map_update_batch(TestMap2_fd, &(keys_a[0]), &(vals_a[0]), &NumberOfValues, 0);
+*/
 
 	return 0;
 }

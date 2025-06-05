@@ -220,10 +220,10 @@ int common_handle_exit(struct sys_exit_args *ctx)
         shit = true;
       }
 
-      if (core_id != handled->core_id)
+      /*if (core_id != handled->core_id)
       {
         bpf_printk("CORE IDS IN ENTERING AND IN EXIT ARE DIFFERENT: enter \"%d\", exit %d;\n", handled->core_id, core_id);
-      }
+      }*/
     }
 
     bpf_map_delete_elem(&PIDActScl, &cur_pid_tgid);

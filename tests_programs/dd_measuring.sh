@@ -2,16 +2,18 @@
 DD_INPUT_FILE="/dev/sda3"
 DD_OUTPUT_FILE="/dev/null"
 
-PATH_TO_ANALYZER_DIR="../bpf_process_tree_builder_ringbuf/code/"
+PATH_TO_ANALYZER_DIR="../bpf_process_tree_builder_ringbuf/code"
 
 NUM_OF_ITERATIONS=5
+#AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=8589934592
 #AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=6442450944
-AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=8589934592
-#AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=644245094
+#AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=805306368
+AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=100663296
+#AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=12582912
 #AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES=16384
-MIN_BLOCK_SIZE=128
-#MAX_BLOCK_SIZE=16384
-MAX_BLOCK_SIZE=128
+MIN_BLOCK_SIZE=64
+MAX_BLOCK_SIZE=16384
+#MAX_BLOCK_SIZE=128
 #MAX_BLOCK_SIZE=67108864
 BLOCK_SIZE_MULTIPLIER=4
 #MAX_BLOCK_SIZE=2048
@@ -67,7 +69,9 @@ do
 		do
 			COUNT=$(($AMOUNT_OF_DATA_BEING_MOVED_IN_BYTES / $block_size))
 		
-			mapfile -t CURRENT_COMMAND_RESULTS < <( { /usr/bin/time --format "%e\n%U\n%S\n" dd if=$DD_INPUT_FILE of=$DD_OUTPUT_FILE bs=$block_size''B count=$COUNT; } 2>&1 )
+			#mapfile -t CURRENT_COMMAND_RESULTS < <( { /usr/bin/time --format "%e\n%U\n%S\n" dd if=$DD_INPUT_FILE of=$DD_OUTPUT_FILE bs=$block_size''B count=$COUNT; } 2>&1 )
+			#mapfile -t CURRENT_COMMAND_RESULTS < <( { /usr/bin/time --format "%e\n%U\n%S\n" dd if=$DD_INPUT_FILE of=$DD_OUTPUT_FILE iflag=direct bs=$block_size''B count=$COUNT; } 2>&1 )
+			mapfile -t CURRENT_COMMAND_RESULTS < <( { /usr/bin/time --format "%e\n%U\n%S\n" dd if=$DD_INPUT_FILE of=$DD_OUTPUT_FILE iflag=nocache bs=$block_size''B count=$COUNT; } 2>&1 )
 			
 			printf "\t $iteration_number |  real (s) ${CURRENT_COMMAND_RESULTS[3]}, user (s) ${CURRENT_COMMAND_RESULTS[4]}, kernel (s) ${CURRENT_COMMAND_RESULTS[5]}\n"
 			printf "\t DD_RESULT: ${CURRENT_COMMAND_RESULTS[2]}\n"

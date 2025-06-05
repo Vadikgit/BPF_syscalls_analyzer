@@ -2,12 +2,12 @@
 # Based on https://github.com/libbpf/libbpf-bootstrap
 CLANG ?= clang
 LLVM_STRIP ?= llvm-strip
-LIBBPF_OBJ := $(abspath ../bpf_process_tree_builder_saving/code/libbpf/libbpf.a)
-BPFTOOL ?= $(abspath ../bpf_process_tree_builder_saving/code/bpftool/bootstrap/bpftool)
+LIBBPF_OBJ := $(abspath ../libbpf/libbpf.a)
+BPFTOOL ?= $(abspath ../bpftool/bootstrap/bpftool)
 
 ARCH ?= $(shell uname -m | sed 's/x86_64/x86/' | sed 's/aarch64/arm64/' | sed 's/ppc64le/powerpc/' \
 			 | sed 's/mips.*/mips/' | sed 's/arm.*/arm/' | sed 's/riscv64/riscv/')
-VMLINUX := ../bpf_process_tree_builder_saving/vmlinux/$(ARCH)/vmlinux.h
+VMLINUX := ../vmlinux/$(ARCH)/vmlinux.h
 
 INCLUDES := -I$(abspath .) -I../libbpf/include/uapi -I$(dir $(VMLINUX))
 CFLAGS := -g -Wall

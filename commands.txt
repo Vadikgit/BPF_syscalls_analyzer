@@ -196,13 +196,13 @@ cd flink/flink-2.0-preview1
 
 ./flink run /home/vadim/stream_data_analysis/flink/untitled/trying2/build/libs/trying2-0.1-SNAPSHOT-all.jar
 
-scp -i /home/vadim/Документы/prog/key1 app admin@89.169.132.125:/home/admin
-app
+scp -i /home/vadim/Документы/prog/key1 install-docker.sh admin@<IP>:/home/admin
 
 
 clear; pstree -p | grep map_extractor
 
 docker run --rm -p 15672:15672 -p 5672:5672 rabbitmq:3.10.7-management
+docker run --rm -p 15672:15672 -p 5672:5672 rabbitmq:4.0-management
 
 
 g++ -g -Wall rabbit.cpp -o main -lamqpcpp -lpthread -ldl -lev
@@ -222,4 +222,195 @@ make
 make install
 cd ..
 
-export RABBITMQ_SERVER_ADDRESS=51.250.11.63
+export RABBITMQ_SERVER_ADDRESS=<IP>
+
+
+
+docker build -t cassandra1 .
+
+docker run --rm -d --name cassandra --hostname cassandra -p 9042:9042 cassandra
+
+docker stop cassandra
+
+cqlsh
+
+CREATE KEYSPACE IF NOT EXISTS test_keyspace WITH REPLICATION =
+{ 'class' : 'SimpleStrategy',
+'replication_factor' : '1'
+};
+
+CREATE TABLE IF NOT EXISTS test_keyspace.test_data (
+    id int PRIMARY KEY,
+    name text
+);
+
+INSERT INTO test_keyspace.test_data (id, name) VALUES (43, 'Vadim');
+
+../../venv/bin/python insert.py
+
+CREATE KEYSPACE IF NOT EXISTS ks1 WITH REPLICATION =
+{ 'class' : 'SimpleStrategy',
+'replication_factor' : '1'
+};
+
+CREATE TABLE IF NOT EXISTS ks1.syscalls (
+    global_id bigint PRIMARY KEY,
+    hostname text,
+    per_node_per_analyzer_run_id bigint,
+    syscall_number smallint,
+    PID int,
+    TGID int,
+    UID int,
+    GID int,
+    core_id smallint,
+    returned_value bigint,
+    enter_date date,
+    enter_time time,
+    exec_duration_in_ns bigint
+);
+
+
+xxd data.clickhouse
+xxd -i data.clickhouse
+
+
+
+sudo apt-get install -y apt-transport-https ca-certificates curl gnupg
+curl -fsSL 'https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key' | sudo gpg --dearmor -o /usr/share/keyrings/clickhouse-keyring.gpg
+
+ARCH=$(dpkg --print-architecture)
+echo "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg arch=${ARCH}] https://packages.clickhouse.com/deb stable main" | sudo tee /etc/apt/sources.list.d/clickhouse.list
+sudo apt-get update
+
+sudo apt-get install clickhouse-server clickhouse-client
+
+
+clickhouse-server
+sudo service clickhouse-server start
+sudo service clickhouse-server restart
+sudo service clickhouse-server status
+
+clickhouse-client
+
+sudo tail -f /var/log/clickhouse-server/clickhouse-server.err.log
+
+
+SELECT * FROM my_database.my_table INTO OUTFILE 'data.clickhouse' FORMAT Native
+
+
+156
+1|0011100 0|0000001
+
+       9c 01
+
+
+
+CREATE DATABASE my_database;
+
+CREATE TABLE my_database.my_table (
+    id UInt32,
+    name String,
+    age UInt32,
+) ENGINE = MergeTree
+ORDER BY id
+
+
+CREATE TABLE my_database.my_table2 (
+    id UInt32,
+    name String,
+    age UInt32,
+) ENGINE = RabbitMQ SETTINGS rabbitmq_host_port = '...:5672',
+                            rabbitmq_exchange_name = 'clickhouse-exchange',
+                            rabbitmq_routing_key_list = 'myqueue',
+                            rabbitmq_format = 'Native',
+                            rabbitmq_exchange_type = 'fanout',
+                            rabbitmq_num_consumers = 1,
+                            rabbitmq_username = 'guest',
+                            rabbitmq_password = 'guest',
+                            date_time_input_format = 'best_effort';
+
+
+                            rabbitmq_queue_consume = true;
+
+CREATE TABLE my_database.my_table3 (
+    id UInt32,
+    name String,
+    age UInt32,
+) ENGINE = MergeTree
+ORDER BY id
+
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS my_database.event_view1
+TO my_database.my_table3 AS
+SELECT
+    id AS id,
+    name AS name,
+    age AS age
+FROM my_database.my_table2;
+
+INSERT INTO my_database.my_table (id, name, age) VALUES (1, 'Alice', 24), (2, 'Bob', 12), (3, 'Alex', 34), (4, 'John', 23);
+INSERT INTO my_database.my_table (id, name, age) VALUES (5, 'ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ', 32);
+//////////////////////////////
+
+CREATE TABLE IF NOT EXISTS my_database.syscalls (
+    hostname String,
+    per_node_per_analyzer_run_id UInt64,
+    syscall_number UInt16,
+    PID UInt32,
+    TGID UInt32,
+    UID UInt32,
+    GID UInt32,
+    core_id UInt16,
+    returned_value UInt64,
+    enter_date_time DateTime64(9, 'Europe/Moscow'),
+    exit_date_time DateTime64(9, 'Europe/Moscow'),
+) ENGINE = MergeTree
+ORDER BY enter_date_time
+
+
+CREATE TABLE my_database.syscalls_from_rabbitmq (
+    c1 String,
+    c2 UInt64,
+    c3 UInt16,
+    c4 UInt32,
+    c5 UInt32,
+    c6 UInt32,
+    c7 UInt32,
+    c8 UInt16,
+    c9 UInt64,
+    c10 UInt64,
+    c11 UInt64,
+) ENGINE = RabbitMQ SETTINGS rabbitmq_host_port = '...:5672',
+                            rabbitmq_exchange_name = 'clickhouse-exchange',
+                            rabbitmq_routing_key_list = 'myqueue',
+                            rabbitmq_format = 'Native',
+                            rabbitmq_exchange_type = 'fanout',
+                            rabbitmq_num_consumers = 1,
+                            rabbitmq_username = 'guest',
+                            rabbitmq_password = 'guest',
+                            date_time_input_format = 'best_effort';
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS my_database.event_view
+TO my_database.syscalls AS
+SELECT
+    c1 AS hostname,
+    c2 AS per_node_per_analyzer_run_id,
+    c3 AS syscall_number,
+    c4 AS PID,
+    c5 AS TGID,
+    c6 AS UID,
+    c7 AS GID,
+    c8 AS core_id,
+    c9 AS returned_value,
+    addNanoseconds(toDateTime64(0, 9, 'Europe/Moscow'), c10) AS enter_date_time,
+    addNanoseconds(toDateTime64(0, 9, 'Europe/Moscow'), c11) AS exit_date_time
+FROM my_database.syscalls_from_rabbitmq;
+
+SELECT * FROM my_database.syscalls
+
+TRUNCATE TABLE my_database.syscalls
+SELECT max(per_node_per_analyzer_run_id) FROM my_database.syscalls
+
+SELECT addNanoseconds(toDateTime64(0, 9, 'Europe/Moscow'), 1576800000000000000)
+
+clickhouse-client < set_up_clickhouse.sql
